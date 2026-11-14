@@ -57,20 +57,47 @@ espcydaprs/
 
 ---
 
-## Pinout en la Placa `ESP32-2432S024C`
+## Pinout en las Placas CYD (Modelos `ILI9341` y `ST7789`)
 
-La placa **ESP32-2432S024C** ya tiene internamente cableados la pantalla SPI (`ILI9341`), el touch capacitivo (`CST820`) y el zócalo **MicroSD** (`VSPI`). Para la radio y el GPS utilizamos los pines libres expuestos en los conectores laterales:
+### ¿Por qué no aparece `IO26` en los conectores laterales de la CYD?
+En todas las variantes de la familia **CYD (`ESP32-2432S028R`, `ESP32-2432S024C`, etc.)**, el pin **`GPIO 26` (`DAC2`)** **no sale a los conectores blancos de expansión (`P3` / `CN1`)** porque está cableado internamente en el PCB a la entrada (`pin 4 IN-`) del amplificador de audio integrado **`SC8002B` / `FM8002A`**, cuya salida va al conector blanco de 2 pines **`SPK` (`P4`)**.
 
-| Función | Pin ESP32 | Ubicación en la 2432S024C | Descripción |
-| :--- | :---: | :--- | :--- |
-| **Audio TX (hacia MIC Radio)** | **`GPIO 26`** | Conector P3 / Salida DAC2 | Señal senoidal AFSK generada por el DAC interno (8 bits). |
-| **Audio RX (desde SPK Radio)** | **`GPIO 35`** | Conector P3 (`ADC1_CH7`) | Entrada de audio analógico polarizada a `1.65V DC`. |
-| **Control PTT Radio** | **`GPIO 22`** | Conector CN1 / P3 | Salida digital (`3.3V` en TX, `0V` en RX) hacia transistor NPN. |
-| **GPS RX (Desde TX del GPS)** | **`GPIO 17`** | Conector P3 / LED Verde | Entrada UART2 (`9600 bps`) para módulo GPS NMEA opcional. |
-| **GPS TX (Hacia RX del GPS)** | **`GPIO 16`** | Conector P3 / LED Azul | Salida UART2 (`9600 bps`) hacia módulo GPS opcional. |
-| **MicroSD (`CS / SCK / MISO / MOSI`)** | **`5 / 18 / 19 / 23`** | Zócalo MicroSD Integrado | Bus VSPI dedicado para actualización de firmware `.bin`. |
-| **Indicador LED TX** | **`GPIO 4`** | LED RGB Trasero (Rojo) | Se enciende en rojo automáticamente mientras transmite (PTT activo). |
-| **Tierra Común** | **`GND`** | Conectores P3 / CN1 | Referencia común entre la placa CYD y el chasis/masa del radio. |
+Para resolver esto sin necesidad de soldar sobre el integrado, el firmware genera la onda senoidal AFSK (`1200 / 2200 Hz`) **simultáneamente por dos vías**:
+1. **Por un pin libre de tus conectores blancos de expansión** (`IO27`, `IO21`, `IO4` o `IO17`, seleccionable en pantalla) usando el modulador hardware **Sigma-Delta DAC del ESP32 a `312.5 kHz`** (que además se desconecta automáticamente al pasar a `RX` para cero ruido en recepción).
+2. **Por `GPIO 26` (`DAC2`)** hacia el conector `SPK` (por si en algún momento deseas tomar audio analógico de `IO26`).
+
+---
+
+### Tabla de Conexiones según tu Modelo de Placa CYD
+
+Puedes cambiar entre ambos modelos en cualquier momento desde **`CONF` -> `PAG 2/4`**, manteniendo presionado el botón físico **`BOOT` durante 2 segundos**, enviando la letra **`d`** por el monitor serie USB o desde el **Portal Web**:
+
+#### Modelo A: Placa CYD con Driver `ILI9341`
+*(Conectores expuestos: `IO35`, `IO22`, `IO21`, `IO27`, `TX`, `RX`)*
+
+| Función | Pin a Usar | Comentario / Ubicación |
+| :--- | :---: | :--- |
+| **Audio RX (desde SPK Radio)** | **`IO35`** | Conector `P3` (`ADC1_CH7` - Solo entrada analógica). |
+| **Control PTT Radio** | **`IO22`** | Conector `CN1` / `P3` (Salida `3.3V` en TX, `0V` en RX). |
+| **Audio TX (hacia MIC Radio)** | **`IO27`** *(o `IO21`)* | Conector `CN1` / `P3` (DAC Sigma-Delta `312.5 kHz`). Si tu placa usa `IO21` para el Backlight, usa **`IO27`** para TX (por defecto); si usa `IO27` para Backlight, selecciona **`IO21`** en `CONF 2/4`. |
+| **Backlight Pantalla TFT** | **`IO21` / `IO27`** | El firmware enciende automáticamente el pin que no esté asignado a `Audio TX`. |
+| **Tierra Común** | **`GND`** | Conector `P3` / `CN1`. |
+
+#### Modelo B: Placa CYD Antigua con Driver `ST7789` (1 solo USB)
+*(Conectores expuestos: `IO35`, `IO22`, `IO21`, `IO4`, `IO16`, `IO17`, `TX`, `RX`)*
+
+| Función | Pin a Usar | Comentario / Ubicación |
+| :--- | :---: | :--- |
+| **Audio RX (desde SPK Radio)** | **`IO35`** | Conector `P3` (`ADC1_CH7` - Solo entrada analógica). |
+| **Control PTT Radio** | **`IO22`** | Conector `CN1` / `P3` (Salida `3.3V` en TX, `0V` en RX). |
+| **Audio TX (hacia MIC Radio)** | **`IO4`** *(o `IO17`)* | Conector `P3` (DAC Sigma-Delta `312.5 kHz`). Al elegir `Placa: ST7789` se asigna **`IO4`** automáticamente, dejando libres `IO16`/`IO17` para el GPS. |
+| **GPS RX (Desde TX del GPS)** | **`IO17`** | Conector `P3` (Entrada UART2 `9600 bps` para módulo GPS opcional). |
+| **GPS TX (Hacia RX del GPS)** | **`IO16`** | Conector `P3` (Salida UART2 `9600 bps` hacia módulo GPS opcional). |
+| **Backlight Pantalla TFT** | **`IO21`** | Iluminación de pantalla TFT. |
+| **MicroSD (`CS / SCK / MISO / MOSI`)** | **`5 / 18 / 19 / 23`** | Zócalo MicroSD integrado (Bus VSPI). |
+| **Tierra Común** | **`GND`** | Conector `P3` / `CN1`. |
+
+> **Nota sobre el Touch:** El firmware auto-detecta al arrancar si la placa tiene panel táctil **capacitivo (`CST820` / `FT6336` por I2C)** o **resistivo (`XPT2046` por SPI en pines `CLK=25, MOSI=32, MISO=39, CS=33, IRQ=36`)**, funcionando en ambos modelos sin recompilar.
 
 ---
 
@@ -82,14 +109,14 @@ Para acoplar el audio sin saturar el micrófono del radio ni dañar el ADC del E
 
 ```text
 ================================================================================
-1. ENTRADA DE AUDIO RX (Salida Auricular/SPK del Radio ---> GPIO 35 del ESP32)
+1. ENTRADA DE AUDIO RX (Salida Auricular/SPK del Radio ---> IO35 del ESP32)
 ================================================================================
 
                   +3.3V (ESP32)
                      |
                     [R1] 10 kΩ
                      |
-SPK Radio o---||-----+----------------> GPIO 35 (ADC1_CH7)
+SPK Radio o---||-----+----------------> IO35 (ADC1_CH7)
              C1      |
             1 µF    [R2] 10 kΩ
                      |
@@ -100,27 +127,30 @@ SPK Radio o---||-----+----------------> GPIO 35 (ADC1_CH7)
 * C1 (1 µF cerámico o electrolítico) aísla el nivel DC del amplificador del radio.
 
 ================================================================================
-2. SALIDA DE AUDIO TX (GPIO 26 DAC del ESP32 ---> Entrada MIC del Radio)
+2. SALIDA DE AUDIO TX (IO27 / IO4 / IO21 / IO17 ---> Entrada MIC del Radio)
 ================================================================================
 
-                                    C2 (1 µF)
-GPIO 26 (DAC) o---[R3 10 kΩ]---+------||--------> Entrada MIC del Radio
-                               |
-                              [R4] 1 kΩ (o potenciómetro de 2.2 kΩ)
-                               |
-                              GND (Común)
+                                             C2 (1 µF)
+Pin TX (IO27 o IO4) o---[R3 10 kΩ]---+---+------||--------> Entrada MIC del Radio
+                                     |   |
+                            [R4] 1 kΩ   === C3 (10 nF a 100 nF cerámico "103"/"104")
+                                     |   |
+                                    GND GND (Común)
 
-* R3 (10 kΩ) y R4 (1 kΩ) forman un atenuador ~10:1 que reduce los ~2.5 Vpp del
-  DAC a ~200 mVpp (nivel ideal de micrófono electret para Yaesu y Baofeng).
+* R3 (10 kΩ) y R4 (1 kΩ) forman un atenuador ~10:1 que reduce los ~2.5 Vpp a
+  ~200 mVpp (nivel ideal de micrófono electret para Yaesu y Baofeng).
+* R3 (10 kΩ) + C3 (10 nF a 100 nF en paralelo con R4) forman además el filtro
+  pasa-bajos RC que elimina por completo la portadora Sigma-Delta de 312.5 kHz,
+  entregando una onda senoidal pura de 1200 / 2200 Hz.
 * C2 (1 µF) bloquea los +5V/+8V de alimentación fantasma (bias) del micrófono.
 
 ================================================================================
-3. CONTROL DE PTT (GPIO 22 del ESP32 ---> Línea PTT del Radio)
+3. CONTROL DE PTT (IO22 del ESP32 ---> Línea PTT del Radio)
 ================================================================================
 
                                Colector
                                   |-------------> Pin PTT del Radio
-GPIO 22 o----[R5 2.2 kΩ]----|  2N2222 / BC548
+IO22 o-------[R5 2.2 kΩ]----|  2N2222 / BC548
                             |     |
                              \    v Emisor
                                   |

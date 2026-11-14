@@ -36,6 +36,7 @@ public:
 
     void begin();
     void update();
+    void applyDisplayHardware();
 
     TFT_eSPI& tft() { return _tft; }
     void requestRedraw() { _needsFullRedraw = true; }

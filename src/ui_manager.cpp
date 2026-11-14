@@ -20,14 +20,39 @@ UiManager Ui;
 UiManager::UiManager() : _tft(TFT_eSPI()) {}
 
 void UiManager::begin() {
-    pinMode(CYD_TFT_BL, OUTPUT);
-    digitalWrite(CYD_TFT_BL, HIGH);
-
     _tft.init();
-    _tft.setRotation(1); // 320x240 Horizontal
+    applyDisplayHardware();
     _tft.fillScreen(COL_BG);
 
     _touch.begin();
+    _needsFullRedraw = true;
+}
+
+void UiManager::applyDisplayHardware() {
+    AprsConfig& cfg = Aprs.config();
+
+    // Encender el pin de Backlight que NO esté asignado a la salida de Audio TX
+    // En modelo ST7789 (1 USB) y 2432S028R el Backlight es GPIO 21; en 2432S024C suele ser GPIO 27.
+    if (cfg.txAudioPin != CYD_BL_PIN_21) {
+        pinMode(CYD_BL_PIN_21, OUTPUT);
+        digitalWrite(CYD_BL_PIN_21, HIGH);
+    }
+    if (cfg.txAudioPin != CYD_BL_PIN_27) {
+        pinMode(CYD_BL_PIN_27, OUTPUT);
+        digitalWrite(CYD_BL_PIN_27, HIGH);
+    }
+
+    _tft.setRotation(1); // 320x240 Horizontal
+
+    // Ajustar registros MADCTL (0x36) e Inversión (0x20/0x21) según sea panel ST7789 o ILI9341
+    if (cfg.boardModel == BOARD_MODEL_ST7789) {
+        _tft.writecommand(0x36);
+        _tft.writedata(0x60); // Landscape 320x240 para ST7789 en CYD (MX + MV, orden RGB)
+        _tft.writecommand(cfg.displayInvert ? 0x21 : 0x20);
+    } else {
+        _tft.setRotation(1);  // Restaura MADCTL de ILI9341
+        _tft.writecommand(cfg.displayInvert ? 0x21 : 0x20);
+    }
     _needsFullRedraw = true;
 }
 
@@ -249,8 +274,8 @@ void UiManager::drawDashboard(bool fullRedraw) {
             _tft.setTextColor(COL_ORANGE, COL_CARD);
         }
     } else {
-        snprintf(line3Buf, sizeof(line3Buf), "Ruta:%s-%u,%s-%u [%s]",
-                 cfg.path1, cfg.path1Ssid, cfg.path2, cfg.path2Ssid,
+        snprintf(line3Buf, sizeof(line3Buf), "TX:IO%u RX:35 PTT:22 [%s]",
+                 cfg.txAudioPin,
                  cfg.radioType == RADIO_BAOFENG ? "BFG" : "YSU");
         _tft.setTextColor(COL_ACCENT, COL_CARD);
     }
@@ -579,31 +604,47 @@ void UiManager::drawConfig(bool fullRedraw) {
         _tft.drawString(commShort, 72, 179, 2);
 
     } else if (_cfgPage == 1) {
-        // Página 2: Radio (Baofeng vs Yaesu), TX Delay, Volumen DAC, Intervalo Baliza, Digipeater
-        _tft.fillRoundRect(6, 52, 308, 34, 3, COL_CARD);
-        _tft.drawRoundRect(6, 52, 308, 34, 3, COL_BORDER);
-        const char* radStr = (cfg.radioType == RADIO_BAOFENG) ? "Radio Preset: BAOFENG UV-5R / UV-82" :
-                             (cfg.radioType == RADIO_YAESU)   ? "Radio Preset: YAESU FT-60 / FT-65 / 2980" :
-                                                                "Radio Preset: PERSONALIZADO";
+        // Página 2: Modelo de Placa (ILI9341 vs ST7789), Pin de Audio TX, Preset Radio, Delay, Vol, Baliza, Digi
+        // Fila 1 (y=52..86): Modelo de Placa y Pin de Salida Audio TX (en conector blanco + IO26)
+        _tft.fillRoundRect(6, 52, 146, 34, 3, COL_CARD);
+        _tft.drawRoundRect(6, 52, 146, 34, 3, COL_ACCENT);
         _tft.setTextColor(COL_YELLOW, COL_CARD);
-        _tft.drawCentreString(radStr, 160, 61, 2);
+        _tft.drawCentreString(cfg.boardModel == BOARD_MODEL_ST7789 ? "Placa: ST7789" : "Placa: ILI9341", 79, 61, 2);
 
-        // Fila 2: TX Delay (ms) y Volumen TX (%)
-        char dlyStr[28], volStr[28];
-        snprintf(dlyStr, sizeof(dlyStr), "TX Delay: %u ms", cfg.txDelayMs);
-        snprintf(volStr, sizeof(volStr), "Nivel TX: %u %%", cfg.txVolume);
+        _tft.fillRoundRect(158, 52, 156, 34, 3, COL_CARD);
+        _tft.drawRoundRect(158, 52, 156, 34, 3, COL_ACCENT);
+        char txPinStr[28];
+        if (cfg.txAudioPin == 26) {
+            snprintf(txPinStr, sizeof(txPinStr), "TX Pin: IO26 (SPK)");
+        } else {
+            snprintf(txPinStr, sizeof(txPinStr), "TX Pin: IO%u (+IO26)", cfg.txAudioPin);
+        }
+        _tft.setTextColor(COL_GREEN, COL_CARD);
+        _tft.drawCentreString(txPinStr, 236, 61, 2);
 
-        _tft.fillRoundRect(6, 91, 150, 34, 3, COL_CARD);
-        _tft.drawRoundRect(6, 91, 150, 34, 3, COL_BORDER);
+        // Fila 2 (y=91..125): Preset Radio (Baofeng/Yaesu), TX Delay y Volumen TX
+        _tft.fillRoundRect(6, 91, 102, 34, 3, COL_CARD);
+        _tft.drawRoundRect(6, 91, 102, 34, 3, COL_BORDER);
+        const char* radShort = (cfg.radioType == RADIO_BAOFENG) ? "Rad:BAOFENG" :
+                               (cfg.radioType == RADIO_YAESU)   ? "Rad:YAESU" : "Rad:CUSTOM";
+        _tft.setTextColor(COL_YELLOW, COL_CARD);
+        _tft.drawCentreString(radShort, 57, 100, 2);
+
+        char dlyStr[20], volStr[20];
+        snprintf(dlyStr, sizeof(dlyStr), "Dly:%ums", cfg.txDelayMs);
+        snprintf(volStr, sizeof(volStr), "Vol:%u%%", cfg.txVolume);
+
+        _tft.fillRoundRect(114, 91, 102, 34, 3, COL_CARD);
+        _tft.drawRoundRect(114, 91, 102, 34, 3, COL_BORDER);
         _tft.setTextColor(COL_WHITE, COL_CARD);
-        _tft.drawCentreString(dlyStr, 81, 100, 2);
+        _tft.drawCentreString(dlyStr, 165, 100, 2);
 
-        _tft.fillRoundRect(164, 91, 150, 34, 3, COL_CARD);
-        _tft.drawRoundRect(164, 91, 150, 34, 3, COL_BORDER);
+        _tft.fillRoundRect(222, 91, 92, 34, 3, COL_CARD);
+        _tft.drawRoundRect(222, 91, 92, 34, 3, COL_BORDER);
         _tft.setTextColor(COL_WHITE, COL_CARD);
-        _tft.drawCentreString(volStr, 239, 100, 2);
+        _tft.drawCentreString(volStr, 268, 100, 2);
 
-        // Fila 3: Intervalo de Baliza y Auto-ACK
+        // Fila 3 (y=130..164): Intervalo de Baliza y Auto-ACK
         char intStr[28];
         snprintf(intStr, sizeof(intStr), "Baliza: cada %u s", cfg.beaconIntervalSec);
         _tft.fillRoundRect(6, 130, 150, 34, 3, COL_CARD);
@@ -616,7 +657,7 @@ void UiManager::drawConfig(bool fullRedraw) {
         _tft.setTextColor(cfg.autoAckMessages ? COL_GREEN : COL_MUTED, COL_CARD);
         _tft.drawCentreString(cfg.autoAckMessages ? "Auto-ACK MSJ: SI" : "Auto-ACK MSJ: NO", 239, 139, 2);
 
-        // Fila 4: Fill-in Digipeater WIDE1-1
+        // Fila 4 (y=169..205): Fill-in Digipeater WIDE1-1
         _tft.fillRoundRect(6, 169, 308, 36, 3, COL_CARD);
         _tft.drawRoundRect(6, 169, 308, 36, 3, COL_BORDER);
         _tft.setTextColor(cfg.digipeatWide1 ? COL_ORANGE : COL_MUTED, COL_CARD);
@@ -1142,24 +1183,42 @@ void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
         }
 
     } else if (_cfgPage == 1) {
-        // Página 2: Radio Preset / TX Delay / TX Volume / Intervalo / Auto-ACK / Digi
+        // Página 2: Modelo de Placa / Pin TX / Radio Preset / TX Delay / TX Volume / Intervalo / Auto-ACK / Digi
         if (ty >= 52 && ty <= 86) {
-            RadioType nextType = (cfg.radioType == RADIO_BAOFENG) ? RADIO_YAESU : RADIO_BAOFENG;
-            Aprs.applyRadioPreset(nextType);
+            if (tx < 155) {
+                BoardModel nextBoard = (cfg.boardModel == BOARD_MODEL_ILI9341) ? BOARD_MODEL_ST7789 : BOARD_MODEL_ILI9341;
+                Aprs.applyBoardModel(nextBoard);
+                applyDisplayHardware();
+            } else {
+                // Ciclar Pin Audio TX entre los pines disponibles en los conectores blancos de ambos modelos:
+                // 27 (ILI9341 CN1) -> 21 (ILI9341 P3) -> 4 (ST7789 P3) -> 17 (ST7789 P3) -> 26 (SPK P4)
+                if (cfg.txAudioPin == 27) cfg.txAudioPin = 21;
+                else if (cfg.txAudioPin == 21) cfg.txAudioPin = 4;
+                else if (cfg.txAudioPin == 4) cfg.txAudioPin = 17;
+                else if (cfg.txAudioPin == 17) cfg.txAudioPin = 26;
+                else cfg.txAudioPin = 27;
+
+                Modem.configure(cfg.txDelayMs, cfg.txTailMs, cfg.txVolume, cfg.txAudioPin);
+                applyDisplayHardware();
+            }
             _needsFullRedraw = true;
             return;
         }
         if (ty >= 91 && ty <= 125) {
-            if (tx < 160) {
+            if (tx < 110) {
+                RadioType nextType = (cfg.radioType == RADIO_BAOFENG) ? RADIO_YAESU : RADIO_BAOFENG;
+                Aprs.applyRadioPreset(nextType);
+            } else if (tx < 218) {
                 cfg.txDelayMs += 100;
                 if (cfg.txDelayMs > 750) cfg.txDelayMs = 200;
                 cfg.radioType = RADIO_CUSTOM;
+                Modem.configure(cfg.txDelayMs, cfg.txTailMs, cfg.txVolume, cfg.txAudioPin);
             } else {
                 cfg.txVolume += 15;
                 if (cfg.txVolume > 100) cfg.txVolume = 25;
                 cfg.radioType = RADIO_CUSTOM;
+                Modem.configure(cfg.txDelayMs, cfg.txTailMs, cfg.txVolume, cfg.txAudioPin);
             }
-            Modem.configure(cfg.txDelayMs, cfg.txTailMs, cfg.txVolume);
             _needsFullRedraw = true;
             return;
         }

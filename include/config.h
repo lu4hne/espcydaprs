@@ -2,21 +2,34 @@
 
 #include <Arduino.h>
 
-#define FIRMWARE_VERSION    "1.2.0"
+#define FIRMWARE_VERSION    "1.3.0"
 
 // ============================================================================
-// PLACA: ESP32-2432S024C (2.4" 240x320 ILI9341 + Touch Capacitivo CST820)
+// PLACA: ESP32 CYD (Soporte Dual: Modelo ST7789 1-USB y Modelo ILI9341)
 // ============================================================================
 
-// --- Pantalla TFT (Definidos también en platformio.ini para TFT_eSPI) ---
-#define CYD_TFT_BL          27
+// --- Pines de Backlight posibles en placas CYD ---
+// En modelo ST7789 (1 USB) y 2432S028R el Backlight es GPIO 21 (dejando GPIO 27 libre).
+// En algunas variantes 2432S024C el Backlight es GPIO 27 (dejando GPIO 21 libre).
+#define CYD_BL_PIN_21       21
+#define CYD_BL_PIN_27       27
 
 // --- Touch Capacitivo CST820 (I2C) ---
 #define CST820_I2C_SDA      33
 #define CST820_I2C_SCL      32
 #define CST820_I2C_RST      25
-#define CST820_I2C_INT      21
+#define CST820_I2C_INT      -1  // No usar GPIO 21 como INPUT para no apagar el Backlight
 #define CST820_I2C_ADDR     0x15
+
+// --- Touch Resistivo XPT2046 (SPI dedicado en placas CYD ST7789 / ILI9341) ---
+#define XPT2046_IRQ_PIN     36
+#define XPT2046_MOSI_PIN    32
+#define XPT2046_MISO_PIN    39
+#define XPT2046_CLK_PIN     25
+#define XPT2046_CS_PIN      33
+
+// --- Botón físico BOOT en la placa ---
+#define CYD_BOOT_BTN_PIN    0
 
 // --- Lector de Tarjeta MicroSD Incorporado (Bus VSPI) ---
 #define SD_PIN_CS           5
@@ -30,19 +43,22 @@
 #define CYD_LED_B           17
 
 // --- Interfaz de Radio VHF/UHF (AFSK 1200 baudios + PTT) ---
-// GPIO 26 = DAC2 (Salida de onda senoidal AFSK hacia MIC del radio)
-#define AFSK_TX_PIN         26
+// GPIO 26 = DAC2 interno (conectado al amplificador de audio SC8002B -> conector SPK P4)
+#define AFSK_DAC2_PIN       26
 
-// GPIO 35 = ADC1_CH7 (Entrada de audio desde SPK/EAR del radio, polarizado a 1.65V)
+// Pin por defecto en conectores blancos P3/CN1 (configurable en pantalla: 27, 21, 4, 17 o 26)
+// Se modula mediante el DAC Sigma-Delta por hardware del ESP32 (312.5 kHz) en paralelo con GPIO 26
+#define AFSK_DEFAULT_TX_PIN 27
+
+// GPIO 35 = ADC1_CH7 (Entrada de audio desde SPK/EAR del radio, presente en ambos modelos)
 #define AFSK_RX_PIN         35
 
-// GPIO 22 = Salida de control PTT (En conector CN1/P3 -> Base de transistor 2N2222 / Optoacoplador)
+// GPIO 22 = Salida de control PTT (presente en los conectores blancos de ambos modelos)
 // Activo en ALTO (HIGH = Transmitiendo, LOW = Recibiendo)
 #define RADIO_PTT_PIN       22
 
 // --- Puerto GPS Externo Opcional (UART2) ---
-// Por defecto usa GPIO 17 (RX2) y GPIO 16 (TX2) cuando se habilita modo GPS,
-// o puedes conectarlo en el conector de expansión.
+// En el modelo ST7789 están expuestos GPIO 17 (RX2) y GPIO 16 (TX2) en el conector P3.
 #define GPS_UART_RX_PIN     17
 #define GPS_UART_TX_PIN     16
 #define GPS_BAUD_RATE       9600
@@ -57,8 +73,13 @@
 #define AFSK_SPACE_FREQ     2200    // Bit '0' = 2200 Hz
 
 // ============================================================================
-// MODOS DE ESTACIÓN, PERFILES DE RADIO Y CONFIGURACIÓN PERSISTENTE (NVS)
+// MODELOS DE PLACA, MODOS DE ESTACIÓN Y CONFIGURACIÓN PERSISTENTE (NVS)
 // ============================================================================
+enum BoardModel : uint8_t {
+    BOARD_MODEL_ILI9341 = 0, // Placa con driver ILI9341 (Conectores: IO35, IO22, IO21, IO27, TX, RX -> TX Audio en IO27 o IO21)
+    BOARD_MODEL_ST7789  = 1  // Placa con driver ST7789 1-USB (Conectores: IO35, IO22, IO21, IO4, IO16, IO17 -> TX Audio en IO4 o IO17)
+};
+
 enum StationMode : uint8_t {
     STATION_MODE_TRACKER     = 0, // Tracker Móvil / Portátil (GPS o Fija, RF TX, sin WiFi/IGate)
     STATION_MODE_FIXED_IGATE = 1, // Estación Fija + IGate (Pos Fija, WiFi + Inyección RF->APRS-IS)
@@ -83,6 +104,10 @@ enum PositionMode : uint8_t {
 };
 
 struct AprsConfig {
+    uint8_t boardModel;     // BOARD_MODEL_ILI9341 o BOARD_MODEL_ST7789
+    bool displayInvert;     // Inversión de color del panel (útil en variantes ST7789 / IPS)
+    uint8_t txAudioPin;     // Pin en conector blanco para Audio TX Sigma-Delta: 27, 21, 4, 17 o 26 (además de DAC2 IO26)
+
     uint8_t stationMode;    // STATION_MODE_TRACKER, STATION_MODE_FIXED_IGATE, STATION_MODE_FIXED_RF
     char callsign[10];      // Ej: "LU4HNE"
     uint8_t ssid;           // 0 a 15 (Ej: 7 Handy, 9 Móvil/Tracker, 10 IGate/Estación Fija)

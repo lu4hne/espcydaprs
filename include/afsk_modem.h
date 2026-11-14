@@ -18,7 +18,7 @@ public:
     AfskModem();
 
     void begin();
-    void configure(uint16_t txDelayMs, uint16_t txTailMs, uint8_t txVolumePercent);
+    void configure(uint16_t txDelayMs, uint16_t txTailMs, uint8_t txVolumePercent, uint8_t txAudioPin = AFSK_DEFAULT_TX_PIN);
 
     // Encola una trama AX.25 (sin CRC ni banderas 0x7E; el módem calcula CRC-16 y agrega 0x7E)
     bool transmitFrame(const uint8_t* payload, uint16_t len, bool loopbackAlso = false);
@@ -32,6 +32,7 @@ public:
     uint8_t getRxAudioLevel() const { return _rxLevelPercent; }
     uint32_t getTxPacketCount() const { return _txCount; }
     uint32_t getRxPacketCount() const { return _rxCount; }
+    uint8_t getTxAudioPin() const { return _txAudioPin; }
 
     // Calcula el CRC-16 CCITT (AX.25 estándar: init 0xFFFF, poly 0x8408 reflejado)
     static uint16_t calcCrc16(const uint8_t* data, uint16_t len);
@@ -52,6 +53,7 @@ private:
     uint16_t _txDelayFlags = 45; // Cantidad de bytes 0x7E de preámbulo
     uint16_t _txTailFlags = 6;   // Cantidad de bytes 0x7E de cola
     uint8_t _txVolume = 80;      // 10..100%
+    uint8_t _txAudioPin = AFSK_DEFAULT_TX_PIN; // Pin en conector P3/CN1 (27, 21, 4, 17 o 26)
 
     // Estado del Demodulador AFSK (RX)
     int16_t _sampleBuf[AFSK_SAMPLES_PER_BIT];
@@ -77,4 +79,3 @@ private:
 };
 
 extern AfskModem Modem;
-

@@ -92,6 +92,7 @@ public:
     void saveConfig();
     void applyRadioPreset(RadioType type);
     void applyStationMode(StationMode mode);
+    void applyBoardModel(BoardModel model);
 
     // Acciones APRS
     bool sendPositionBeacon(bool loopbackTest = false);

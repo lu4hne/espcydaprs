@@ -567,7 +567,19 @@ void UpdateManager::handleHttpRoot() {
     html += "<span class='badge'>Passcode: " + String(Igate.getEffectivePasscode()) + "</span></div></div>";
 
     html += "<form class='card' action='/save' method='POST'>";
-    html += "<h2>1. Modo de Operación y Estación</h2>";
+    html += "<h2>1. Modelo de Placa, Pinout y Estación</h2>";
+    html += "<div class='row'><div><label>Modelo de Placa CYD:</label><select name='brdMod'>";
+    html += "<option value='0'" + String(c.boardModel == BOARD_MODEL_ILI9341 ? " selected" : "") + ">Modelo ILI9341 (IO35, IO22, IO21, IO27)</option>";
+    html += "<option value='1'" + String(c.boardModel == BOARD_MODEL_ST7789 ? " selected" : "") + ">Modelo ST7789 1-USB (IO35, IO22, IO21, IO4, IO16, IO17)</option>";
+    html += "</select></div>";
+    html += "<div><label>Pin Audio TX (Conector + IO26):</label><select name='txPin'>";
+    html += "<option value='27'" + String(c.txAudioPin == 27 ? " selected" : "") + ">GPIO 27 (Conector en ILI9341 con BL=21)</option>";
+    html += "<option value='21'" + String(c.txAudioPin == 21 ? " selected" : "") + ">GPIO 21 (Conector en ILI9341 con BL=27)</option>";
+    html += "<option value='4'" + String(c.txAudioPin == 4 ? " selected" : "") + ">GPIO 4 (Conector en ST7789, deja GPS 16/17 libre)</option>";
+    html += "<option value='17'" + String(c.txAudioPin == 17 ? " selected" : "") + ">GPIO 17 (Conector P3 en ST7789 sin GPS)</option>";
+    html += "<option value='26'" + String(c.txAudioPin == 26 ? " selected" : "") + ">GPIO 26 (Solo conector SPK P4)</option>";
+    html += "</select></div></div>";
+
     html += "<label>Rol del Equipo:</label><select name='mode'>";
     html += "<option value='0'" + String(c.stationMode == STATION_MODE_TRACKER ? " selected" : "") + ">Modo Tracker (Móvil / Portátil GPS + RF)</option>";
     html += "<option value='1'" + String(c.stationMode == STATION_MODE_FIXED_IGATE ? " selected" : "") + ">Modo Estación Fija + IGate (RF -> APRS-IS)</option>";
@@ -616,6 +628,13 @@ void UpdateManager::handleHttpRoot() {
 void UpdateManager::handleHttpSaveConfig() {
     AprsConfig& c = Aprs.config();
 
+    if (_server.hasArg("brdMod")) {
+        c.boardModel = (uint8_t)constrain(_server.arg("brdMod").toInt(), 0, 1);
+    }
+    if (_server.hasArg("txPin")) {
+        uint8_t p = (uint8_t)_server.arg("txPin").toInt();
+        if (p == 27 || p == 21 || p == 4 || p == 17 || p == 26) c.txAudioPin = p;
+    }
     if (_server.hasArg("mode")) {
         uint8_t newMode = (uint8_t)_server.arg("mode").toInt();
         Aprs.applyStationMode((StationMode)newMode);
@@ -641,6 +660,7 @@ void UpdateManager::handleHttpSaveConfig() {
     if (_server.hasArg("otaUrl")) strlcpy(c.otaServerUrl, _server.arg("otaUrl").c_str(), sizeof(c.otaServerUrl));
 
     Aprs.saveConfig();
+    Ui.applyDisplayHardware();
     Igate.reconnectNow();
     Ui.requestRedraw();
 

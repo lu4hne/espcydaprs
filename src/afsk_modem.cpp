@@ -1,10 +1,13 @@
 #include "afsk_modem.h"
 #include <driver/adc.h>
 #include <driver/dac.h>
+#include <esp32-hal-sigmadelta.h>
 #include <esp_timer.h>
 #include <math.h>
 
 AfskModem Modem;
+
+static constexpr uint8_t SIGMADELTA_TX_CH = 0;
 
 // Tabla Senoidal de 256 entradas (0..255, centrada en 128)
 static uint8_t s_sineLut[256];
@@ -55,14 +58,12 @@ void AfskModem::begin() {
     pinMode(RADIO_PTT_PIN, OUTPUT);
     digitalWrite(RADIO_PTT_PIN, LOW);
 
-    pinMode(CYD_LED_R, OUTPUT);
-    pinMode(CYD_LED_G, OUTPUT);
-    pinMode(CYD_LED_B, OUTPUT);
-    digitalWrite(CYD_LED_R, HIGH); // Apagado (Activo en LOW)
-    digitalWrite(CYD_LED_G, HIGH);
-    digitalWrite(CYD_LED_B, HIGH);
+    if (_txAudioPin != CYD_LED_R) {
+        pinMode(CYD_LED_R, OUTPUT);
+        digitalWrite(CYD_LED_R, HIGH); // Apagado (Activo en LOW)
+    }
 
-    // Configurar DAC2 (GPIO 26) para salida TX
+    // Configurar DAC2 (GPIO 26 -> amplificador de audio onboard / conector SPK P4)
     dac_output_enable(DAC_CHANNEL_2);
     dac_output_voltage(DAC_CHANNEL_2, 128);
 
@@ -85,7 +86,7 @@ void AfskModem::begin() {
     );
 }
 
-void AfskModem::configure(uint16_t txDelayMs, uint16_t txTailMs, uint8_t txVolumePercent) {
+void AfskModem::configure(uint16_t txDelayMs, uint16_t txTailMs, uint8_t txVolumePercent, uint8_t txAudioPin) {
     // A 1200 bps, 1 byte (8 bits) dura 6.67 ms
     uint16_t delayFlags = (txDelayMs * 150) / 1000;
     if (delayFlags < 15) delayFlags = 15;
@@ -100,6 +101,10 @@ void AfskModem::configure(uint16_t txDelayMs, uint16_t txTailMs, uint8_t txVolum
     if (txVolumePercent < 10) txVolumePercent = 10;
     if (txVolumePercent > 100) txVolumePercent = 100;
     _txVolume = txVolumePercent;
+
+    if (txAudioPin == 27 || txAudioPin == 21 || txAudioPin == 4 || txAudioPin == 17 || txAudioPin == 26) {
+        _txAudioPin = txAudioPin;
+    }
 }
 
 uint16_t AfskModem::calcCrc16(const uint8_t* data, uint16_t len) {
@@ -141,7 +146,26 @@ bool AfskModem::receiveFrame(RawAx25Frame* outFrame) {
 void AfskModem::setPtt(bool active) {
     _transmitting = active;
     digitalWrite(RADIO_PTT_PIN, active ? HIGH : LOW);
-    digitalWrite(CYD_LED_R, active ? LOW : HIGH); // LED Rojo encendido durante TX
+
+    if (_txAudioPin != CYD_LED_R) {
+        pinMode(CYD_LED_R, OUTPUT);
+        digitalWrite(CYD_LED_R, active ? LOW : HIGH); // LED Rojo encendido durante TX
+    }
+
+    // Si se seleccionó un pin de los conectores blancos (27, 21, 4 o 17),
+    // activar el modulador Sigma-Delta de hardware (312.5 kHz) solo durante TX
+    // y desacoplarlo en RX para evitar ruido digital en el receptor.
+    if (_txAudioPin != AFSK_DAC2_PIN) {
+        if (active) {
+            sigmaDeltaSetup(_txAudioPin, SIGMADELTA_TX_CH, 312500);
+            sigmaDeltaWrite(SIGMADELTA_TX_CH, 128);
+        } else {
+            sigmaDeltaDetachPin(_txAudioPin);
+            pinMode(_txAudioPin, OUTPUT);
+            // Si es GPIO 4 (LED Rojo activo en LOW), dejarlo en HIGH al terminar TX
+            digitalWrite(_txAudioPin, (_txAudioPin == CYD_LED_R) ? HIGH : LOW);
+        }
+    }
 }
 
 void AfskModem::dspTaskLoop() {
@@ -160,6 +184,9 @@ void AfskModem::dspTaskLoop() {
     while (true) {
         // Verificar si hay paquete para transmitir
         if (xQueueReceive(_txQueue, &currentJob, 0) == pdTRUE) {
+            uint8_t activePin = _txAudioPin;
+            bool useSigmaDelta = (activePin != AFSK_DAC2_PIN);
+
             setPtt(true);
 
             // Si es loopback, reiniciar estado del demodulador para recibir limpio
@@ -192,7 +219,13 @@ void AfskModem::dspTaskLoop() {
                         int16_t scaled = (centered * (int16_t)_txVolume) / 100;
                         uint8_t dacVal = (uint8_t)(128 + scaled);
 
+                        // 1. Salida por DAC2 interno (GPIO 26 -> conector SPK P4)
                         dac_output_voltage(DAC_CHANNEL_2, dacVal);
+
+                        // 2. Salida simultánea por Sigma-Delta en el pin del conector blanco elegido (27, 21, 4 o 17)
+                        if (useSigmaDelta) {
+                            sigmaDeltaWrite(SIGMADELTA_TX_CH, dacVal);
+                        }
 
                         if (currentJob.loopback) {
                             processRxSample(centered * 8);
@@ -247,7 +280,7 @@ void AfskModem::dspTaskLoop() {
                 sendByte(0x7E, true);
             }
 
-            // Silenciar DAC al punto medio (1.65V) y soltar PTT
+            // Silenciar DAC al punto medio (1.65V), desacoplar Sigma-Delta y soltar PTT
             dac_output_voltage(DAC_CHANNEL_2, 128);
             setPtt(false);
             _txCount++;
@@ -258,7 +291,7 @@ void AfskModem::dspTaskLoop() {
             continue;
         }
 
-        // --- MODO RECEPCIÓN (Muestreo ADC a 9600 Hz) ---
+        // --- MODO RECEPCIÓN (Muestreo ADC a 9600 Hz en GPIO 35) ---
         int rawAdc = adc1_get_raw(ADC1_CHANNEL_7);
 
         // Filtro IIR para remover componente DC (~1.65V -> ~2048)
@@ -276,7 +309,6 @@ void AfskModem::dspTaskLoop() {
             if (pct > 100) pct = 100;
             _rxLevelPercent = (uint8_t)pct;
             _carrierDetected = (peakInWindow > 90) && _rxInFrame;
-            digitalWrite(CYD_LED_G, _carrierDetected ? LOW : HIGH);
             peakInWindow = 0;
             levelWindowSamples = 0;
         }
@@ -431,4 +463,3 @@ void AfskModem::processRxBit(bool nrziBit) {
         }
     }
 }
-

@@ -17,16 +17,22 @@ AprsEngine::AprsEngine() {
 
 void AprsEngine::begin() {
     loadConfig();
-    Modem.configure(_cfg.txDelayMs, _cfg.txTailMs, _cfg.txVolume);
+    Modem.configure(_cfg.txDelayMs, _cfg.txTailMs, _cfg.txVolume, _cfg.txAudioPin);
 
-    // Iniciar UART2 para módulo GPS externo (RX=GPIO17, TX=GPIO16)
-    Serial2.begin(GPS_BAUD_RATE, SERIAL_8N1, GPS_UART_RX_PIN, GPS_UART_TX_PIN);
+    // Iniciar UART2 para módulo GPS externo (RX=GPIO17, TX=GPIO16) solo si GPIO17 no se usa para Audio TX
+    if (_cfg.txAudioPin != GPS_UART_RX_PIN) {
+        Serial2.begin(GPS_BAUD_RATE, SERIAL_8N1, GPS_UART_RX_PIN, GPS_UART_TX_PIN);
+    }
     _lastBeaconMs = millis();
 }
 
 void AprsEngine::loadConfig() {
     Preferences prefs;
     prefs.begin("aprs_cfg", true);
+
+    _cfg.boardModel = prefs.getUChar("brdMod", BOARD_MODEL_ILI9341);
+    _cfg.displayInvert = prefs.getBool("dispInv", (_cfg.boardModel == BOARD_MODEL_ST7789));
+    _cfg.txAudioPin = prefs.getUChar("txPin", (_cfg.boardModel == BOARD_MODEL_ST7789) ? 4 : 27);
 
     _cfg.stationMode = prefs.getUChar("stMode", STATION_MODE_TRACKER);
     strlcpy(_cfg.callsign, prefs.getString("call", "LU4HNE").c_str(), sizeof(_cfg.callsign));
@@ -38,7 +44,7 @@ void AprsEngine::loadConfig() {
     _cfg.path2Ssid = prefs.getUChar("p2ssid", 1);
     _cfg.symbolTable = (char)prefs.getUChar("symT", '/');
     _cfg.symbolCode  = (char)prefs.getUChar("symC", '[');
-    strlcpy(_cfg.comment, prefs.getString("comm", "ESP32 CYD 2432S024C 1200bps").c_str(), sizeof(_cfg.comment));
+    strlcpy(_cfg.comment, prefs.getString("comm", "ESP32 CYD APRS 1200bps").c_str(), sizeof(_cfg.comment));
     _cfg.fixedLat = prefs.getDouble("lat", -34.6037);
     _cfg.fixedLon = prefs.getDouble("lon", -58.3816);
     _cfg.fixedAltMeters = prefs.getShort("alt", 25);
@@ -71,6 +77,10 @@ void AprsEngine::loadConfig() {
 void AprsEngine::saveConfig() {
     Preferences prefs;
     prefs.begin("aprs_cfg", false);
+
+    prefs.putUChar("brdMod", _cfg.boardModel);
+    prefs.putBool("dispInv", _cfg.displayInvert);
+    prefs.putUChar("txPin", _cfg.txAudioPin);
 
     prefs.putUChar("stMode", _cfg.stationMode);
     prefs.putString("call", _cfg.callsign);
@@ -107,7 +117,23 @@ void AprsEngine::saveConfig() {
     prefs.putString("otaUrl", _cfg.otaServerUrl);
 
     prefs.end();
-    Modem.configure(_cfg.txDelayMs, _cfg.txTailMs, _cfg.txVolume);
+    Modem.configure(_cfg.txDelayMs, _cfg.txTailMs, _cfg.txVolume, _cfg.txAudioPin);
+}
+
+void AprsEngine::applyBoardModel(BoardModel model) {
+    _cfg.boardModel = model;
+    if (model == BOARD_MODEL_ST7789) {
+        // Modelo ST7789 (1 USB): Conectores P3 tienen IO35, IO22, IO21(BL), IO4, IO16, IO17
+        // Usamos IO4 para Audio TX Sigma-Delta (dejando IO17/IO16 libres para GPS) + IO26 DAC2
+        _cfg.txAudioPin = 4;
+        _cfg.displayInvert = false;
+    } else {
+        // Modelo ILI9341: Conectores tienen IO35, IO22, IO21, IO27
+        // Usamos IO27 para Audio TX Sigma-Delta (con BL en IO21) + IO26 DAC2
+        _cfg.txAudioPin = 27;
+        _cfg.displayInvert = false;
+    }
+    Modem.configure(_cfg.txDelayMs, _cfg.txTailMs, _cfg.txVolume, _cfg.txAudioPin);
 }
 
 void AprsEngine::applyRadioPreset(RadioType type) {
@@ -123,7 +149,7 @@ void AprsEngine::applyRadioPreset(RadioType type) {
         _cfg.txTailMs  = 40;
         _cfg.txVolume  = 55;
     }
-    Modem.configure(_cfg.txDelayMs, _cfg.txTailMs, _cfg.txVolume);
+    Modem.configure(_cfg.txDelayMs, _cfg.txTailMs, _cfg.txVolume, _cfg.txAudioPin);
 }
 
 void AprsEngine::applyStationMode(StationMode mode) {
