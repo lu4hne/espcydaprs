@@ -24,7 +24,7 @@ void UiManager::begin() {
     applyDisplayHardware();
     _tft.fillScreen(COL_BG);
 
-    _touch.begin();
+    _touch.begin(&_tft);
     _needsFullRedraw = true;
 }
 
@@ -42,15 +42,52 @@ void UiManager::applyDisplayHardware() {
         digitalWrite(CYD_BL_PIN_27, HIGH);
     }
 
-    _tft.setRotation(1); // 320x240 Horizontal
-
-    // Ajustar registros MADCTL (0x36) e Inversión (0x20/0x21) según sea panel ST7789 o ILI9341
     if (cfg.boardModel == BOARD_MODEL_ST7789) {
-        _tft.writecommand(0x36);
-        _tft.writedata(0x60); // Landscape 320x240 para ST7789 en CYD (MX + MV, orden RGB)
+        // Secuencia completa de inicialización ST7789 idéntica a Panel_ST7789 de LovyanGFX (WeatherClock)
+        // Primero SWRESET (0x01) para limpiar los registros 0xC0..0xC7 que _tft.init() envió para ILI9341
+        _tft.writecommand(0x01); // SWRESET
+        delay(130);
+        _tft.writecommand(0x11); // SLPOUT
+        delay(120);
+
+        _tft.writecommand(0xB7); _tft.writedata(0x35); // GCTRL
+        _tft.writecommand(0xBB); _tft.writedata(0x28); // VCOMS (JLX240 datasheet)
+        _tft.writecommand(0xC0); _tft.writedata(0x0C); // LCMCTRL
+        _tft.writecommand(0xC2); _tft.writedata(0x01); _tft.writedata(0xFF); // VDVVRHEN
+        _tft.writecommand(0xC3); _tft.writedata(0x10); // VRHS
+        _tft.writecommand(0xC4); _tft.writedata(0x20); // VDVSET
+        _tft.writecommand(0xD0); _tft.writedata(0xA4); _tft.writedata(0xA1); // PWCTRL1
+        _tft.writecommand(0xB0); _tft.writedata(0x00); _tft.writedata(0xC0); // RAMCTRL
+
+        static const uint8_t st_pvgam[14] = {
+            0xD0, 0x00, 0x02, 0x07, 0x0A, 0x28, 0x32, 0x44, 0x42, 0x06, 0x0E, 0x12, 0x14, 0x17
+        };
+        _tft.writecommand(0xE0); // PVGAMCTRL
+        for (uint8_t b : st_pvgam) _tft.writedata(b);
+
+        static const uint8_t st_nvgam[14] = {
+            0xD0, 0x00, 0x02, 0x07, 0x0A, 0x28, 0x31, 0x54, 0x47, 0x0E, 0x1C, 0x17, 0x1B, 0x1E
+        };
+        _tft.writecommand(0xE1); // NVGAMCTRL
+        for (uint8_t b : st_nvgam) _tft.writedata(b);
+
+        _tft.writecommand(0x11); // SLPOUT
+        delay(130);
+        _tft.writecommand(0x38); // IDMOFF
+        _tft.writecommand(0x29); // DISPON
+        delay(20);
+
+        // Actualizar dimensiones internas 320x240 en TFT_eSPI y luego fijar COLMOD + MADCTL de ST7789
+        _tft.setRotation(1);
+        _tft.writecommand(0x3A); _tft.writedata(0x55); // COLMOD: 16-bit RGB565
+        _tft.writecommand(0x36); _tft.writedata(0x6C); // MADCTL: MV | MX | MH | BGR (igual a WeatherClock rotation=1)
         _tft.writecommand(cfg.displayInvert ? 0x21 : 0x20);
     } else {
-        _tft.setRotation(1);  // Restaura MADCTL de ILI9341
+        // Re-inicializar registros nativos de ILI9341 por si se acaba de conmutar desde ST7789
+        _tft.writecommand(0x01); // SWRESET
+        delay(120);
+        _tft.init();
+        _tft.setRotation(1); // 320x240 Horizontal
         _tft.writecommand(cfg.displayInvert ? 0x21 : 0x20);
     }
     _needsFullRedraw = true;

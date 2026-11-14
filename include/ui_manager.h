@@ -39,6 +39,7 @@ public:
     void applyDisplayHardware();
 
     TFT_eSPI& tft() { return _tft; }
+    CST820Touch& touch() { return _touch; }
     void requestRedraw() { _needsFullRedraw = true; }
 
 private:

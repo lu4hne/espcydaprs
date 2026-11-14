@@ -30,8 +30,16 @@ void AprsEngine::loadConfig() {
     Preferences prefs;
     prefs.begin("aprs_cfg", true);
 
-    _cfg.boardModel = prefs.getUChar("brdMod", BOARD_MODEL_ILI9341);
-    _cfg.displayInvert = prefs.getBool("dispInv", (_cfg.boardModel == BOARD_MODEL_ST7789));
+    // Si aún no hay modelo guardado en NVS, auto-detectar por MAC de la placa (o usar ST7789 en la de 1 USB)
+    uint8_t defaultBoard = BOARD_MODEL_ST7789;
+    uint64_t efuseMac = ESP.getEfuseMac();
+    // La placa ILI9341 (MAC 80:F3:DA:BA:DA:84 -> byte bajo 0x80) arranca en ILI9341; la de 1 USB (68:09:47...) en ST7789
+    if ((efuseMac & 0xFF) == 0x80) {
+        defaultBoard = BOARD_MODEL_ILI9341;
+    }
+
+    _cfg.boardModel = prefs.getUChar("brdMod", defaultBoard);
+    _cfg.displayInvert = prefs.getBool("dispInv", false);
     _cfg.txAudioPin = prefs.getUChar("txPin", (_cfg.boardModel == BOARD_MODEL_ST7789) ? 4 : 27);
 
     _cfg.stationMode = prefs.getUChar("stMode", STATION_MODE_TRACKER);

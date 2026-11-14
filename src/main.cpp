@@ -127,6 +127,8 @@ void loop() {
             Serial.printf("[CMD] Modo cambiado a: %u (0=Tracker, 1=Fija+IGate, 2=Fija RF)\n", (unsigned)next);
         } else if (cmd == 'd' || cmd == 'D') {
             toggleBoardHardwareProfile();
+        } else if (cmd == 't' || cmd == 'T') {
+            Ui.touch().printDiagnostics();
         } else if (cmd == 'w' || cmd == 'W') {
             Updater.startWebPortal(true);
             Ui.requestRedraw();
