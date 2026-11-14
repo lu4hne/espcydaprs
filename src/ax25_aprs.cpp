@@ -1,4 +1,5 @@
 #include "ax25_aprs.h"
+#include "igate_manager.h"
 #include <Preferences.h>
 #include <TinyGPS++.h>
 #include <math.h>
@@ -27,6 +28,7 @@ void AprsEngine::loadConfig() {
     Preferences prefs;
     prefs.begin("aprs_cfg", true);
 
+    _cfg.stationMode = prefs.getUChar("stMode", STATION_MODE_TRACKER);
     strlcpy(_cfg.callsign, prefs.getString("call", "LU4HNE").c_str(), sizeof(_cfg.callsign));
     _cfg.ssid = prefs.getUChar("ssid", 7);
     strlcpy(_cfg.destCall, prefs.getString("dest", "APECYD").c_str(), sizeof(_cfg.destCall));
@@ -50,6 +52,19 @@ void AprsEngine::loadConfig() {
     _cfg.autoAckMessages = prefs.getBool("autoAck", true);
     _cfg.digipeatWide1   = prefs.getBool("digiW1", false);
 
+    // Parámetros WiFi e IGate APRS-IS
+    strlcpy(_cfg.wifiSsid, prefs.getString("wSsid", "").c_str(), sizeof(_cfg.wifiSsid));
+    strlcpy(_cfg.wifiPass, prefs.getString("wPass", "").c_str(), sizeof(_cfg.wifiPass));
+    _cfg.igateEnabled = prefs.getBool("igEn", (_cfg.stationMode == STATION_MODE_FIXED_IGATE));
+    strlcpy(_cfg.aprsIsServer, prefs.getString("isSrv", "samerica.aprs2.net").c_str(), sizeof(_cfg.aprsIsServer));
+    _cfg.aprsIsPort = prefs.getUShort("isPort", 14580);
+    _cfg.aprsIsPasscode = prefs.getInt("isPass", -1);
+    _cfg.igateBeaconMode = prefs.getUChar("igBcn", IGATE_BCN_BOTH);
+    _cfg.igateIsToRfMsg = prefs.getBool("igMsgRf", true);
+
+    // Parámetros OTA
+    strlcpy(_cfg.otaServerUrl, prefs.getString("otaUrl", "").c_str(), sizeof(_cfg.otaServerUrl));
+
     prefs.end();
 }
 
@@ -57,6 +72,7 @@ void AprsEngine::saveConfig() {
     Preferences prefs;
     prefs.begin("aprs_cfg", false);
 
+    prefs.putUChar("stMode", _cfg.stationMode);
     prefs.putString("call", _cfg.callsign);
     prefs.putUChar("ssid", _cfg.ssid);
     prefs.putString("dest", _cfg.destCall);
@@ -80,6 +96,16 @@ void AprsEngine::saveConfig() {
     prefs.putBool("autoAck", _cfg.autoAckMessages);
     prefs.putBool("digiW1", _cfg.digipeatWide1);
 
+    prefs.putString("wSsid", _cfg.wifiSsid);
+    prefs.putString("wPass", _cfg.wifiPass);
+    prefs.putBool("igEn", _cfg.igateEnabled);
+    prefs.putString("isSrv", _cfg.aprsIsServer);
+    prefs.putUShort("isPort", _cfg.aprsIsPort);
+    prefs.putInt("isPass", _cfg.aprsIsPasscode);
+    prefs.putUChar("igBcn", _cfg.igateBeaconMode);
+    prefs.putBool("igMsgRf", _cfg.igateIsToRfMsg);
+    prefs.putString("otaUrl", _cfg.otaServerUrl);
+
     prefs.end();
     Modem.configure(_cfg.txDelayMs, _cfg.txTailMs, _cfg.txVolume);
 }
@@ -98,6 +124,50 @@ void AprsEngine::applyRadioPreset(RadioType type) {
         _cfg.txVolume  = 55;
     }
     Modem.configure(_cfg.txDelayMs, _cfg.txTailMs, _cfg.txVolume);
+}
+
+void AprsEngine::applyStationMode(StationMode mode) {
+    _cfg.stationMode = mode;
+    if (mode == STATION_MODE_TRACKER) {
+        // Modo Tracker Móvil / Portátil
+        _cfg.igateEnabled = false;
+        _cfg.posMode = POS_MODE_GPS;
+        _cfg.symbolTable = '/';
+        if (_cfg.symbolCode == '&' || _cfg.symbolCode == '-') {
+            _cfg.symbolCode = '>'; // Auto / Móvil por defecto en Tracker
+        }
+        if (_cfg.ssid == 10 || _cfg.ssid == 1) {
+            _cfg.ssid = 9; // -9 Móvil / Tracker
+        }
+        if (_cfg.beaconIntervalSec > 300) {
+            _cfg.beaconIntervalSec = 120;
+        }
+        strlcpy(_cfg.comment, "ESP32 CYD Tracker 1200bps", sizeof(_cfg.comment));
+    } else if (mode == STATION_MODE_FIXED_IGATE) {
+        // Modo Estación Fija + IGate APRS-IS
+        _cfg.igateEnabled = true;
+        _cfg.posMode = POS_MODE_FIXED;
+        _cfg.symbolTable = 'I';
+        _cfg.symbolCode  = '&'; // Símbolo oficial APRS IGate (I&)
+        _cfg.ssid = 10;         // -10 SSID estándar de IGate
+        if (_cfg.beaconIntervalSec < 300) {
+            _cfg.beaconIntervalSec = 600;
+        }
+        strlcpy(_cfg.comment, "ESP32 CYD Estacion Fija + IGate", sizeof(_cfg.comment));
+    } else if (mode == STATION_MODE_FIXED_RF) {
+        // Modo Estación Fija Solo RF / Digipeater
+        _cfg.igateEnabled = false;
+        _cfg.posMode = POS_MODE_FIXED;
+        _cfg.symbolTable = '/';
+        _cfg.symbolCode  = '-'; // Casa / Estación Base QTH
+        if (_cfg.ssid == 9 || _cfg.ssid == 10) {
+            _cfg.ssid = 1;
+        }
+        if (_cfg.beaconIntervalSec < 300) {
+            _cfg.beaconIntervalSec = 600;
+        }
+        strlcpy(_cfg.comment, "ESP32 CYD Estacion Fija VHF", sizeof(_cfg.comment));
+    }
 }
 
 double AprsEngine::getCurrentLat() const {
@@ -131,11 +201,20 @@ uint32_t AprsEngine::getSecondsUntilNextBeacon() const {
 void AprsEngine::update() {
     pollGps();
 
-    // 1. Procesar tramas AX.25 recibidas desde el módem DSP
+    // 1. Procesar tramas AX.25 recibidas desde el módem DSP (Core 0 -> Core 1)
     RawAx25Frame raw;
     while (Modem.receiveFrame(&raw)) {
         DecodedPacket decoded;
         if (decodeAx25Frame(raw, &decoded)) {
+            decoded.fromAprsIs = false;
+
+            // Si estamos en modo Estación Fija + IGate (o IGate activo), inyectar a APRS-IS
+            if (_cfg.stationMode == STATION_MODE_FIXED_IGATE || _cfg.igateEnabled) {
+                decoded.gatedToIs = Igate.injectRfPacket(decoded);
+            } else {
+                decoded.gatedToIs = false;
+            }
+
             // Guardar en el buffer circular de monitoreo
             _packetLog[_packetHead] = decoded;
             _packetHead = (_packetHead + 1) % MAX_PACKET_LOG;
@@ -144,7 +223,7 @@ void AprsEngine::update() {
             // Actualizar directorio de estaciones escuchadas
             updateStationTable(decoded);
 
-            // Si está activo el modo Fill-in Digipeater WIDE1-1, evaluar repetición
+            // Si está activo el modo Fill-in Digipeater WIDE1-1, evaluar repetición RF
             if (_cfg.digipeatWide1) {
                 maybeDigipeat(raw, decoded);
             }
@@ -299,6 +378,21 @@ bool AprsEngine::sendPositionBeacon(bool loopbackTest) {
              (long)altFeet,
              _cfg.comment);
 
+    _lastBeaconMs = millis();
+
+    bool isIgateActive = (_cfg.stationMode == STATION_MODE_FIXED_IGATE) || _cfg.igateEnabled;
+    bool sentToIs = false;
+
+    // Si estamos en modo Estación Fija + IGate y no es loopback, enviar baliza a APRS-IS según configuración
+    if (!loopbackTest && isIgateActive && _cfg.igateBeaconMode != IGATE_BCN_RF_ONLY) {
+        sentToIs = Igate.sendSelfBeaconToAprsIs(info);
+    }
+
+    // Si el usuario eligió enviar baliza SOLO a APRS-IS (sin activar PTT de radio), retornar
+    if (!loopbackTest && isIgateActive && _cfg.igateBeaconMode == IGATE_BCN_IS_ONLY) {
+        return sentToIs;
+    }
+
     uint8_t frame[MAX_AX25_FRAME_LEN];
     uint16_t frameLen = buildAx25Frame(
         frame,
@@ -309,7 +403,6 @@ bool AprsEngine::sendPositionBeacon(bool loopbackTest) {
         info
     );
 
-    _lastBeaconMs = millis();
     return Modem.transmitFrame(frame, frameLen, loopbackTest);
 }
 
@@ -346,6 +439,11 @@ bool AprsEngine::sendTextMessage(const char* destCallsign, const char* messageTe
     entry.timestampMs = millis();
     if (_msgCount < MAX_MESSAGES_LIST) _msgCount++;
 
+    // Si el IGate está conectado a APRS-IS y no es prueba loopback, inyectar también por APRS-IS
+    if (!loopbackTest && Igate.isAprsIsConnected()) {
+        Igate.sendSelfBeaconToAprsIs(info);
+    }
+
     uint8_t frame[MAX_AX25_FRAME_LEN];
     uint16_t frameLen = buildAx25Frame(
         frame,
@@ -363,6 +461,10 @@ bool AprsEngine::sendCustomStatus(const char* statusText, bool loopbackTest) {
     char info[120];
     snprintf(info, sizeof(info), ">%s", statusText ? statusText : "ESP32 CYD APRS Ready");
 
+    if (!loopbackTest && Igate.isAprsIsConnected()) {
+        Igate.sendSelfBeaconToAprsIs(info);
+    }
+
     uint8_t frame[MAX_AX25_FRAME_LEN];
     uint16_t frameLen = buildAx25Frame(
         frame,
@@ -378,6 +480,10 @@ bool AprsEngine::sendCustomStatus(const char* statusText, bool loopbackTest) {
 void AprsEngine::sendAckPacket(const char* toCallsign, const char* msgId) {
     char info[64];
     snprintf(info, sizeof(info), ":%-9.9s:ack%s", toCallsign, msgId);
+
+    if (Igate.isAprsIsConnected()) {
+        Igate.sendSelfBeaconToAprsIs(info);
+    }
 
     uint8_t frame[MAX_AX25_FRAME_LEN];
     uint16_t frameLen = buildAx25Frame(
@@ -404,6 +510,11 @@ void AprsEngine::processMessageRetries() {
 
                 char info[140];
                 snprintf(info, sizeof(info), ":%-9.9s:%-.64s{%s", m.peerCall, m.text, m.msgId);
+
+                if (Igate.isAprsIsConnected()) {
+                    Igate.sendSelfBeaconToAprsIs(info);
+                }
+
                 uint8_t frame[MAX_AX25_FRAME_LEN];
                 uint16_t frameLen = buildAx25Frame(
                     frame,
@@ -419,6 +530,104 @@ void AprsEngine::processMessageRetries() {
             }
         }
     }
+}
+
+bool AprsEngine::wasStationHeardRecentlyOnRf(const char* callsign, uint32_t maxAgeMs) const {
+    if (!callsign || callsign[0] == '\0') return false;
+    uint32_t now = millis();
+    for (int i = 0; i < MAX_STATIONS_LIST; i++) {
+        if (_stations[i].active && strcasecmp(_stations[i].callsign, callsign) == 0) {
+            if (now - _stations[i].lastHeardMs <= maxAgeMs) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool AprsEngine::handleAprsIsIncomingLine(const char* tnc2Line) {
+    if (!tnc2Line || tnc2Line[0] == '#' || strlen(tnc2Line) < 10) return false;
+
+    // Parsear cabecera TNC2: SRC>DST,PATH:INFO
+    const char* gt = strchr(tnc2Line, '>');
+    const char* colon = strchr(tnc2Line, ':');
+    if (!gt || !colon || colon <= gt) return false;
+
+    DecodedPacket pkt;
+    memset(&pkt, 0, sizeof(pkt));
+    pkt.timestampMs = millis();
+    pkt.fromAprsIs = true;
+
+    size_t srcLen = (size_t)(gt - tnc2Line);
+    if (srcLen >= sizeof(pkt.srcCall)) srcLen = sizeof(pkt.srcCall) - 1;
+    memcpy(pkt.srcCall, tnc2Line, srcLen);
+    pkt.srcCall[srcLen] = '\0';
+
+    const char* comma = strchr(gt + 1, ',');
+    if (comma && comma < colon) {
+        size_t dstLen = (size_t)(comma - (gt + 1));
+        if (dstLen >= sizeof(pkt.dstCall)) dstLen = sizeof(pkt.dstCall) - 1;
+        memcpy(pkt.dstCall, gt + 1, dstLen);
+        pkt.dstCall[dstLen] = '\0';
+
+        size_t pathLen = (size_t)(colon - (comma + 1));
+        if (pathLen >= sizeof(pkt.pathStr)) pathLen = sizeof(pkt.pathStr) - 1;
+        memcpy(pkt.pathStr, comma + 1, pathLen);
+        pkt.pathStr[pathLen] = '\0';
+    } else {
+        size_t dstLen = (size_t)(colon - (gt + 1));
+        if (dstLen >= sizeof(pkt.dstCall)) dstLen = sizeof(pkt.dstCall) - 1;
+        memcpy(pkt.dstCall, gt + 1, dstLen);
+        pkt.dstCall[dstLen] = '\0';
+    }
+
+    strlcpy(pkt.infoText, colon + 1, sizeof(pkt.infoText));
+
+    // Evaluar si es un mensaje APRS (:DESTINO  :texto)
+    const char* info = pkt.infoText;
+    size_t len = strlen(info);
+    if (len >= 11 && info[0] == ':' && info[10] == ':') {
+        char addressee[10];
+        memcpy(addressee, &info[1], 9);
+        addressee[9] = '\0';
+        for (int i = 8; i >= 0 && addressee[i] == ' '; i--) {
+            addressee[i] = '\0';
+        }
+
+        const char* body = &info[11];
+
+        // 1. Verificar si es para nuestra propia estación (procesa mensaje o ACK entrante)
+        handleIncomingMessage(pkt, addressee, body);
+
+        // 2. Si está habilitado IGate IS->RF y el destinatario fue escuchado por RF recientemente,
+        // retransmitir en VHF/UHF con formato de tercer partido "}SRC>DST,TCPIP,MYCALL*:INFO"
+        char myFullCall[12];
+        formatFullCallsign(_cfg.callsign, _cfg.ssid, myFullCall, sizeof(myFullCall));
+        bool isForMe = (strcasecmp(addressee, myFullCall) == 0) ||
+                       (strcasecmp(addressee, _cfg.callsign) == 0);
+
+        if (!isForMe && _cfg.igateIsToRfMsg && wasStationHeardRecentlyOnRf(addressee)) {
+            char thirdPartyInfo[180];
+            snprintf(thirdPartyInfo, sizeof(thirdPartyInfo),
+                     "}%s>%s,TCPIP,%s*:%s",
+                     pkt.srcCall, pkt.dstCall, myFullCall, pkt.infoText);
+
+            uint8_t frame[MAX_AX25_FRAME_LEN];
+            uint16_t frameLen = buildAx25Frame(
+                frame,
+                _cfg.callsign, _cfg.ssid,
+                _cfg.destCall, 0,
+                _cfg.path1, _cfg.path1Ssid,
+                nullptr, 0,
+                thirdPartyInfo
+            );
+            Modem.transmitFrame(frame, frameLen, false);
+            Serial.printf("[IGATE IS->RF] Retransmitido a estacion local %s: %s\n", addressee, thirdPartyInfo);
+            return true;
+        }
+    }
+
+    return false;
 }
 
 bool AprsEngine::decodeAx25Frame(const RawAx25Frame& raw, DecodedPacket* outPkt) {

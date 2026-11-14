@@ -2,6 +2,8 @@
 
 #include <Arduino.h>
 
+#define FIRMWARE_VERSION    "1.2.0"
+
 // ============================================================================
 // PLACA: ESP32-2432S024C (2.4" 240x320 ILI9341 + Touch Capacitivo CST820)
 // ============================================================================
@@ -15,6 +17,12 @@
 #define CST820_I2C_RST      25
 #define CST820_I2C_INT      21
 #define CST820_I2C_ADDR     0x15
+
+// --- Lector de Tarjeta MicroSD Incorporado (Bus VSPI) ---
+#define SD_PIN_CS           5
+#define SD_PIN_SCK          18
+#define SD_PIN_MISO         19
+#define SD_PIN_MOSI         23
 
 // --- LED RGB Incorporado en la placa (Activo en BAJO / LOW) ---
 #define CYD_LED_R           4
@@ -49,8 +57,20 @@
 #define AFSK_SPACE_FREQ     2200    // Bit '0' = 2200 Hz
 
 // ============================================================================
-// PERFILES DE RADIO Y CONFIGURACIÓN PERSISTENTE (NVS)
+// MODOS DE ESTACIÓN, PERFILES DE RADIO Y CONFIGURACIÓN PERSISTENTE (NVS)
 // ============================================================================
+enum StationMode : uint8_t {
+    STATION_MODE_TRACKER     = 0, // Tracker Móvil / Portátil (GPS o Fija, RF TX, sin WiFi/IGate)
+    STATION_MODE_FIXED_IGATE = 1, // Estación Fija + IGate (Pos Fija, WiFi + Inyección RF->APRS-IS)
+    STATION_MODE_FIXED_RF    = 2  // Estación Fija Solo RF / Digipeater WIDE1-1 (sin WiFi)
+};
+
+enum IgateBeaconMode : uint8_t {
+    IGATE_BCN_BOTH    = 0, // Transmitir baliza propia por RF y también inyectarla a APRS-IS
+    IGATE_BCN_IS_ONLY = 1, // Inyectar baliza propia solo a APRS-IS (Internet)
+    IGATE_BCN_RF_ONLY = 2  // Transmitir baliza propia solo por Radio VHF/UHF
+};
+
 enum RadioType : uint8_t {
     RADIO_BAOFENG = 0,  // Baofeng UV-5R / UV-82 (requiere TX Delay mayor ~450ms si se usa ahorro de batería o VOX)
     RADIO_YAESU   = 1,  // Yaesu FT-60 / FT-65 / FT-4X / FT-2980 (PTT rápido ~250ms, mic más sensible)
@@ -63,32 +83,45 @@ enum PositionMode : uint8_t {
 };
 
 struct AprsConfig {
+    uint8_t stationMode;    // STATION_MODE_TRACKER, STATION_MODE_FIXED_IGATE, STATION_MODE_FIXED_RF
     char callsign[10];      // Ej: "LU4HNE"
-    uint8_t ssid;           // 0 a 15 (Ej: 7 para Handy, 9 para Móvil)
+    uint8_t ssid;           // 0 a 15 (Ej: 7 Handy, 9 Móvil/Tracker, 10 IGate/Estación Fija)
     char destCall[10];      // Destino AX.25: "APECYD" (APRS ESP32 CYD)
     char path1[10];         // Ej: "WIDE1"
     uint8_t path1Ssid;      // Ej: 1
     char path2[10];         // Ej: "WIDE2"
     uint8_t path2Ssid;      // Ej: 1
-    char symbolTable;       // '/' (Primaria) o '\' (Alternativa)
-    char symbolCode;        // '[' (Persona/Handy), '>' (Auto), '-' (Casa), 'k' (Camioneta)
+    char symbolTable;       // '/' (Primaria) o '\' (Alternativa) o 'I' (IGate overlay)
+    char symbolCode;        // '[' (Handy), '>' (Auto), '-' (Casa), '&' (IGate), 'k' (Camioneta)
     char comment[44];       // Comentario de baliza APRS
     double fixedLat;        // Latitud en grados decimales (Sur negativo, ej. -34.6037)
     double fixedLon;        // Longitud en grados decimales (Oeste negativo, ej. -58.3816)
     int16_t fixedAltMeters; // Altitud fija en metros
     uint8_t posMode;        // POS_MODE_FIXED o POS_MODE_GPS
     bool autoBeacon;        // Baliza periódica automática activada
-    uint16_t beaconIntervalSec; // Intervalo de baliza en segundos (ej. 120, 300, 600, 900)
+    uint16_t beaconIntervalSec; // Intervalo de baliza en segundos (ej. 60, 120, 300, 600, 900)
     uint8_t radioType;      // RADIO_BAOFENG, RADIO_YAESU, RADIO_CUSTOM
     uint16_t txDelayMs;     // Preámbulo de banderas 0x7E en ms (Baofeng: 450ms, Yaesu: 250ms)
     uint16_t txTailMs;      // Cola antes de soltar PTT en ms (default 50ms)
     uint8_t txVolume;       // Amplitud DAC de salida (10 a 100%)
     bool autoAckMessages;   // Responder ACK automáticamente al recibir mensaje propio
     bool digipeatWide1;     // Repetir (Fill-in Digipeater WIDE1-1) opcional
+
+    // --- Red WiFi e IGate APRS-IS ---
+    char wifiSsid[33];      // Nombre de red WiFi para Estación Fija + IGate / OTA
+    char wifiPass[65];      // Contraseña WiFi
+    bool igateEnabled;      // Inyección RF -> APRS-IS habilitada
+    char aprsIsServer[48];  // Servidor APRS-IS (ej. "samerica.aprs2.net" o "rotate.aprs2.net")
+    uint16_t aprsIsPort;    // Puerto APRS-IS (estándar: 14580)
+    int32_t aprsIsPasscode; // -1 = calcular automáticamente desde callsign, o passcode manual
+    uint8_t igateBeaconMode;// IGATE_BCN_BOTH, IGATE_BCN_IS_ONLY, IGATE_BCN_RF_ONLY
+    bool igateIsToRfMsg;    // Reenviar mensajes de texto desde APRS-IS hacia RF para estaciones locales
+
+    // --- Actualización OTA Remota ---
+    char otaServerUrl[96];  // URL base o JSON para actualización OTA por HTTP/HTTPS
 };
 
 // Límites de almacenamiento en RAM para la interfaz gráfica
 #define MAX_PACKET_LOG      24
 #define MAX_STATIONS_LIST   20
 #define MAX_MESSAGES_LIST   20
-

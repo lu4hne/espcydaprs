@@ -1,4 +1,6 @@
 #include "ui_manager.h"
+#include "igate_manager.h"
+#include "update_manager.h"
 
 UiManager Ui;
 
@@ -8,7 +10,7 @@ UiManager Ui;
 #define COL_CARD        0x18E3  // Gris azulado para tarjetas
 #define COL_BORDER      0x39E7  // Borde suave
 #define COL_ACCENT      0x05FF  // Cian brillante
-#define COL_GREEN       0x07E0  // Verde activo / RX
+#define COL_GREEN       0x07E0  // Verde activo / RX / Verificado
 #define COL_RED         0xF800  // Rojo TX / Alerta
 #define COL_ORANGE      0xFD20  // Ámbar / Advertencia
 #define COL_YELLOW      0xFFE0  // Amarillo / Indicativos
@@ -51,7 +53,9 @@ void UiManager::update() {
     // 3. Redibujado completo al cambiar de pestaña o recibir nuevo paquete
     uint32_t rxNow = Modem.getRxPacketCount();
     uint32_t txNow = Modem.getTxPacketCount();
-    if (rxNow != _lastDrawnRxCount && (_currentTab == TAB_MONITOR || _currentTab == TAB_STATIONS || _currentTab == TAB_MESSAGES)) {
+    uint32_t igNow = Igate.getRfToIsCount();
+    if ((rxNow != _lastDrawnRxCount || igNow != _lastDrawnIgCount) &&
+        (_currentTab == TAB_MONITOR || _currentTab == TAB_STATIONS || _currentTab == TAB_MESSAGES)) {
         _needsFullRedraw = true;
     }
 
@@ -64,6 +68,7 @@ void UiManager::update() {
         _lastDynamicUpdateMs = millis();
         _lastDrawnRxCount = rxNow;
         _lastDrawnTxCount = txNow;
+        _lastDrawnIgCount = igNow;
         return;
     }
 
@@ -90,11 +95,25 @@ void UiManager::drawTopBar() {
     _tft.setTextColor(COL_YELLOW, COL_HEADER);
     _tft.drawString(myCall, 6, 3, 2);
 
-    // Perfil de Radio
-    const char* radioBadge = (cfg.radioType == RADIO_BAOFENG) ? "BFG" :
-                             (cfg.radioType == RADIO_YAESU)   ? "YSU" : "CUS";
-    _tft.setTextColor(COL_ACCENT, COL_HEADER);
-    _tft.drawString(radioBadge, 92, 3, 2);
+    // Rol activo: TRK (Tracker) / IGATE (Estación Fija + IGate) / FIJA (Base RF)
+    if (cfg.stationMode == STATION_MODE_FIXED_IGATE || cfg.igateEnabled) {
+        if (Igate.isAprsIsVerified()) {
+            _tft.setTextColor(COL_GREEN, COL_HEADER);
+            _tft.drawString("IG:ON", 88, 3, 2);
+        } else if (Igate.isWifiConnected()) {
+            _tft.setTextColor(COL_ACCENT, COL_HEADER);
+            _tft.drawString("IG:TCP", 88, 3, 2);
+        } else {
+            _tft.setTextColor(COL_ORANGE, COL_HEADER);
+            _tft.drawString("IG:WIFI", 88, 3, 2);
+        }
+    } else if (cfg.stationMode == STATION_MODE_TRACKER) {
+        _tft.setTextColor(COL_ACCENT, COL_HEADER);
+        _tft.drawString("TRACK", 88, 3, 2);
+    } else {
+        _tft.setTextColor(COL_ACCENT, COL_HEADER);
+        _tft.drawString("FIJA", 88, 3, 2);
+    }
 
     // Estado de Posición (FIJA o GPS)
     char posBadge[20];
@@ -111,7 +130,7 @@ void UiManager::drawTopBar() {
             _tft.setTextColor(COL_ORANGE, COL_HEADER);
         }
     }
-    _tft.drawString(posBadge, 134, 3, 2);
+    _tft.drawString(posBadge, 146, 3, 2);
 
     // Estado TX / RX / IDLE a la derecha
     if (Modem.isTransmitting()) {
@@ -165,11 +184,11 @@ void UiManager::drawDashboard(bool fullRedraw) {
     AprsConfig& cfg = Aprs.config();
 
     if (fullRedraw) {
-        // Tarjeta 1: Coordenadas y Estado de Estación
+        // Tarjeta 1: Modo, Coordenadas y Estado de Estación / IGate
         _tft.fillRoundRect(6, 28, 198, 66, 4, COL_CARD);
         _tft.drawRoundRect(6, 28, 198, 66, 4, COL_BORDER);
 
-        // Tarjeta 2: Contadores TX / RX
+        // Tarjeta 2: Contadores TX / RX / IGate
         _tft.fillRoundRect(210, 28, 104, 66, 4, COL_CARD);
         _tft.drawRoundRect(210, 28, 104, 66, 4, COL_BORDER);
 
@@ -207,36 +226,56 @@ void UiManager::drawDashboard(bool fullRedraw) {
         _tft.drawCentreString("AUTO: OFF", 269, 184, 2);
     }
 
-    // Datos de posición en Tarjeta 1
-    char latLonBuf[40];
-    snprintf(latLonBuf, sizeof(latLonBuf), "Lat: %.4f  Lon: %.4f", Aprs.getCurrentLat(), Aprs.getCurrentLon());
+    // Datos de posición y modo en Tarjeta 1 (Tocar Tarjeta 1 cambia rápido Tracker <-> Fija+IGate)
+    const char* modeTitle = (cfg.stationMode == STATION_MODE_FIXED_IGATE) ? "MODO: FIJA + IGATE" :
+                            (cfg.stationMode == STATION_MODE_TRACKER)     ? "MODO: TRACKER RF" :
+                                                                            "MODO: FIJA SOLO RF";
+    _tft.setTextColor(COL_YELLOW, COL_CARD);
+    _tft.drawString(modeTitle, 12, 32, 2);
+
+    char latLonBuf[36];
+    snprintf(latLonBuf, sizeof(latLonBuf), "%.4f, %.4f (%dm)",
+             Aprs.getCurrentLat(), Aprs.getCurrentLon(), Aprs.getCurrentAlt());
     _tft.setTextColor(COL_WHITE, COL_CARD);
-    _tft.drawString(latLonBuf, 12, 33, 2);
+    _tft.drawString(latLonBuf, 12, 51, 2);
 
-    char pathBuf[44];
-    snprintf(pathBuf, sizeof(pathBuf), "Ruta: %s-%u,%s-%u  Alt:%dm",
-             cfg.path1, cfg.path1Ssid, cfg.path2, cfg.path2Ssid, Aprs.getCurrentAlt());
-    _tft.setTextColor(COL_ACCENT, COL_CARD);
-    _tft.drawString(pathBuf, 12, 52, 2);
+    char line3Buf[34];
+    if (cfg.stationMode == STATION_MODE_FIXED_IGATE || cfg.igateEnabled) {
+        if (Igate.isAprsIsVerified()) {
+            snprintf(line3Buf, sizeof(line3Buf), "APRS-IS OK (%s)", Igate.getLocalIpString().c_str());
+            _tft.setTextColor(COL_GREEN, COL_CARD);
+        } else {
+            snprintf(line3Buf, sizeof(line3Buf), "IS: %s", Igate.getStateText());
+            _tft.setTextColor(COL_ORANGE, COL_CARD);
+        }
+    } else {
+        snprintf(line3Buf, sizeof(line3Buf), "Ruta:%s-%u,%s-%u [%s]",
+                 cfg.path1, cfg.path1Ssid, cfg.path2, cfg.path2Ssid,
+                 cfg.radioType == RADIO_BAOFENG ? "BFG" : "YSU");
+        _tft.setTextColor(COL_ACCENT, COL_CARD);
+    }
+    _tft.fillRect(10, 70, 188, 18, COL_CARD);
+    _tft.drawString(line3Buf, 12, 71, 2);
 
-    char commShort[32];
-    strlcpy(commShort, cfg.comment, sizeof(commShort));
-    _tft.setTextColor(COL_MUTED, COL_CARD);
-    _tft.drawString(commShort, 12, 71, 2);
-
-    // Contadores TX / RX en Tarjeta 2
+    // Contadores TX / RX / IGate en Tarjeta 2
     char countBuf[24];
     snprintf(countBuf, sizeof(countBuf), "TX: %lu", (unsigned long)Modem.getTxPacketCount());
     _tft.setTextColor(COL_ORANGE, COL_CARD);
-    _tft.drawString(countBuf, 218, 35, 2);
+    _tft.drawString(countBuf, 218, 33, 2);
 
     snprintf(countBuf, sizeof(countBuf), "RX: %lu", (unsigned long)Modem.getRxPacketCount());
     _tft.setTextColor(COL_GREEN, COL_CARD);
-    _tft.drawString(countBuf, 218, 54, 2);
+    _tft.drawString(countBuf, 218, 52, 2);
 
-    snprintf(countBuf, sizeof(countBuf), "Est: %d", Aprs.getStationCount());
-    _tft.setTextColor(COL_WHITE, COL_CARD);
-    _tft.drawString(countBuf, 218, 72, 2);
+    if (cfg.stationMode == STATION_MODE_FIXED_IGATE || cfg.igateEnabled) {
+        snprintf(countBuf, sizeof(countBuf), "IG: %lu", (unsigned long)Igate.getRfToIsCount());
+        _tft.setTextColor(COL_ACCENT, COL_CARD);
+    } else {
+        snprintf(countBuf, sizeof(countBuf), "Est: %d", Aprs.getStationCount());
+        _tft.setTextColor(COL_WHITE, COL_CARD);
+    }
+    _tft.fillRect(216, 70, 92, 18, COL_CARD);
+    _tft.drawString(countBuf, 218, 71, 2);
 
     // Barra de nivel de Audio RX (Vúmetro para ajustar volumen del Baofeng/Yaesu)
     uint8_t audioPct = Modem.getRxAudioLevel();
@@ -257,13 +296,14 @@ void UiManager::drawDashboard(bool fullRedraw) {
     if (Aprs.getPacketLogCount() > 0) {
         const DecodedPacket& last = Aprs.getPacketLog(0);
         char hdr[48];
+        const char* igTag = last.gatedToIs ? " [->IS]" : "";
         if (last.hasPosition) {
-            snprintf(hdr, sizeof(hdr), "%s -> %.1fkm (%d%s)  ",
+            snprintf(hdr, sizeof(hdr), "%s -> %.1fkm (%d%s)%s  ",
                      last.srcCall, last.distanceKm, last.bearingDeg,
-                     AprsEngine::bearingToCardinal(last.bearingDeg));
+                     AprsEngine::bearingToCardinal(last.bearingDeg), igTag);
         } else {
-            snprintf(hdr, sizeof(hdr), "%s > %s (%s)     ",
-                     last.srcCall, last.dstCall, last.pathStr);
+            snprintf(hdr, sizeof(hdr), "%s > %s%s     ",
+                     last.srcCall, last.dstCall, igTag);
         }
         _tft.setTextColor(COL_YELLOW, COL_CARD);
         _tft.drawString(hdr, 12, 134, 2);
@@ -276,13 +316,13 @@ void UiManager::drawDashboard(bool fullRedraw) {
     } else {
         _tft.setTextColor(COL_MUTED, COL_CARD);
         _tft.drawString("Esperando paquetes AFSK 1200 bps...", 12, 136, 2);
-        _tft.drawString("Pulsa LOOPBACK para probar codif/decodif", 12, 152, 2);
+        _tft.drawString("Toca MODO arriba para Tracker o Fija+IGate", 12, 152, 2);
     }
 }
 
 void UiManager::drawMonitor(bool fullRedraw) {
     _tft.setTextColor(COL_ACCENT, COL_BG);
-    _tft.drawString("MONITOR DE TRAFICO AX.25 / APRS (1200 bps)", 6, 26, 2);
+    _tft.drawString("MONITOR DE TRAFICO AX.25 / IGATE (1200 bps)", 6, 26, 2);
 
     int count = Aprs.getPacketLogCount();
     if (count == 0) {
@@ -300,17 +340,18 @@ void UiManager::drawMonitor(bool fullRedraw) {
         _tft.fillRoundRect(4, y, 312, 37, 3, COL_CARD);
         _tft.drawRoundRect(4, y, 312, 37, 3, COL_BORDER);
 
-        char line1[46];
+        char line1[48];
         uint32_t ageSec = (millis() - p.timestampMs) / 1000;
+        const char* igBadge = p.gatedToIs ? " [IGATE]" : "";
         if (p.hasPosition) {
-            snprintf(line1, sizeof(line1), "%s [%.1fkm %s] hace %lus",
+            snprintf(line1, sizeof(line1), "%s [%.1fkm %s]%s %lus",
                      p.srcCall, p.distanceKm, AprsEngine::bearingToCardinal(p.bearingDeg),
-                     (unsigned long)ageSec);
+                     igBadge, (unsigned long)ageSec);
         } else {
-            snprintf(line1, sizeof(line1), "%s > %s (%lus)",
-                     p.srcCall, p.dstCall, (unsigned long)ageSec);
+            snprintf(line1, sizeof(line1), "%s > %s%s (%lus)",
+                     p.srcCall, p.dstCall, igBadge, (unsigned long)ageSec);
         }
-        _tft.setTextColor(COL_YELLOW, COL_CARD);
+        _tft.setTextColor(p.gatedToIs ? COL_GREEN : COL_YELLOW, COL_CARD);
         _tft.drawString(line1, 9, y + 3, 2);
 
         char line2[46];
@@ -449,65 +490,85 @@ void UiManager::drawStations(bool fullRedraw) {
 void UiManager::drawConfig(bool fullRedraw) {
     AprsConfig& cfg = Aprs.config();
 
+    static const char* const PAGE_TITLES[4] = {
+        "CONF 1/4: MODO Y ESTACION",
+        "CONF 2/4: RADIO Y BALIZA",
+        "CONF 3/4: WIFI E IGATE",
+        "CONF 4/4: SD Y WEB OTA"
+    };
+
     // Encabezado con selector de página y botón GUARDAR
     _tft.setTextColor(COL_ACCENT, COL_BG);
-    _tft.drawString(_cfgPage == 0 ? "CONFIG 1/2: ESTACION Y POS" : "CONFIG 2/2: RADIO Y MODEM", 6, 27, 2);
+    _tft.drawString(PAGE_TITLES[_cfgPage % 4], 6, 27, 2);
 
-    _tft.fillRoundRect(188, 25, 60, 22, 3, COL_HEADER);
-    _tft.drawRoundRect(188, 25, 60, 22, 3, COL_BORDER);
+    char nextLbl[16];
+    snprintf(nextLbl, sizeof(nextLbl), "PAG %u/4 >", ((_cfgPage + 1) % 4) + 1);
+    _tft.fillRoundRect(184, 25, 66, 22, 3, COL_HEADER);
+    _tft.drawRoundRect(184, 25, 66, 22, 3, COL_BORDER);
     _tft.setTextColor(COL_WHITE, COL_HEADER);
-    _tft.drawCentreString(_cfgPage == 0 ? "PAG 2 >" : "< PAG 1", 218, 28, 2);
+    _tft.drawCentreString(nextLbl, 217, 28, 2);
 
     _tft.fillRoundRect(254, 25, 62, 22, 3, COL_GREEN);
     _tft.setTextColor(COL_BG, COL_GREEN);
     _tft.drawCentreString("GUARDAR", 285, 28, 2);
 
     if (_cfgPage == 0) {
-        // Fila 1: Indicativo y SSID
-        _tft.fillRoundRect(6, 52, 190, 34, 3, COL_CARD);
-        _tft.drawRoundRect(6, 52, 190, 34, 3, COL_BORDER);
+        // Página 1: Rol del Equipo (Tracker vs Estación Fija + IGate vs Fija RF), Indicativo, Posición, Coordenadas
+        // Fila 1 (y=52..86): Selector de Modo Operativo Principal
+        uint16_t modeBg = (cfg.stationMode == STATION_MODE_FIXED_IGATE) ? 0x0320 : COL_CARD;
+        _tft.fillRoundRect(6, 52, 308, 34, 3, modeBg);
+        _tft.drawRoundRect(6, 52, 308, 34, 3, COL_ACCENT);
+        const char* modeDesc = (cfg.stationMode == STATION_MODE_TRACKER)     ? "Modo: TRACKER MOVIL / PORTATIL (RF)" :
+                               (cfg.stationMode == STATION_MODE_FIXED_IGATE) ? "Modo: ESTACION FIJA + IGATE (APRS-IS)" :
+                                                                               "Modo: ESTACION FIJA SOLO RF / DIGI";
+        _tft.setTextColor(COL_YELLOW, modeBg);
+        _tft.drawCentreString(modeDesc, 160, 61, 2);
+
+        // Fila 2 (y=91..125): Indicativo, SSID y Símbolo
+        _tft.fillRoundRect(6, 91, 132, 34, 3, COL_CARD);
+        _tft.drawRoundRect(6, 91, 132, 34, 3, COL_BORDER);
         _tft.setTextColor(COL_MUTED, COL_CARD);
-        _tft.drawString("Indicativo:", 12, 61, 2);
+        _tft.drawString("Call:", 10, 100, 2);
         _tft.setTextColor(COL_YELLOW, COL_CARD);
-        _tft.drawString(cfg.callsign, 90, 61, 2);
+        _tft.drawString(cfg.callsign, 46, 100, 2);
 
-        _tft.fillRoundRect(202, 52, 112, 34, 3, COL_CARD);
-        _tft.drawRoundRect(202, 52, 112, 34, 3, COL_BORDER);
-        char ssidStr[20];
-        snprintf(ssidStr, sizeof(ssidStr), "SSID: -%u", cfg.ssid);
+        _tft.fillRoundRect(142, 91, 74, 34, 3, COL_CARD);
+        _tft.drawRoundRect(142, 91, 74, 34, 3, COL_BORDER);
+        char ssidStr[16];
+        snprintf(ssidStr, sizeof(ssidStr), "SSID:-%u", cfg.ssid);
         _tft.setTextColor(COL_WHITE, COL_CARD);
-        _tft.drawCentreString(ssidStr, 258, 61, 2);
+        _tft.drawCentreString(ssidStr, 179, 100, 2);
 
-        // Fila 2: Modo Posición (FIJA / GPS UART) y Símbolo
-        _tft.fillRoundRect(6, 91, 190, 34, 3, COL_CARD);
-        _tft.drawRoundRect(6, 91, 190, 34, 3, COL_BORDER);
+        _tft.fillRoundRect(220, 91, 94, 34, 3, COL_CARD);
+        _tft.drawRoundRect(220, 91, 94, 34, 3, COL_BORDER);
+        const char* symDesc = (cfg.symbolCode == '&') ? "Simb:IGate" :
+                              (cfg.symbolCode == '[') ? "Simb:Handy" :
+                              (cfg.symbolCode == '>') ? "Simb:Auto" :
+                              (cfg.symbolCode == '-') ? "Simb:Casa" : "Simb:Camion";
         _tft.setTextColor(COL_ACCENT, COL_CARD);
-        _tft.drawCentreString(cfg.posMode == POS_MODE_FIXED ? "Modo: POSICION FIJA" : "Modo: GPS EXTERNO", 101, 100, 2);
+        _tft.drawCentreString(symDesc, 267, 100, 2);
 
-        _tft.fillRoundRect(202, 91, 112, 34, 3, COL_CARD);
-        _tft.drawRoundRect(202, 91, 112, 34, 3, COL_BORDER);
-        const char* symDesc = (cfg.symbolCode == '[') ? "Simb: Handy" :
-                              (cfg.symbolCode == '>') ? "Simb: Auto" :
-                              (cfg.symbolCode == '-') ? "Simb: Casa" : "Simb: Camion";
+        // Fila 3 (y=130..164): Fuente Posición (FIJA/GPS), Latitud y Longitud
+        _tft.fillRoundRect(6, 130, 82, 34, 3, COL_CARD);
+        _tft.drawRoundRect(6, 130, 82, 34, 3, COL_BORDER);
+        _tft.setTextColor(COL_ACCENT, COL_CARD);
+        _tft.drawCentreString(cfg.posMode == POS_MODE_FIXED ? "Pos:FIJA" : "Pos:GPS", 47, 139, 2);
+
+        char latStr[20], lonStr[20];
+        snprintf(latStr, sizeof(latStr), "Lat:%.3f", cfg.fixedLat);
+        snprintf(lonStr, sizeof(lonStr), "Lon:%.3f", cfg.fixedLon);
+
+        _tft.fillRoundRect(92, 130, 108, 34, 3, COL_CARD);
+        _tft.drawRoundRect(92, 130, 108, 34, 3, COL_BORDER);
         _tft.setTextColor(COL_WHITE, COL_CARD);
-        _tft.drawCentreString(symDesc, 258, 100, 2);
+        _tft.drawCentreString(latStr, 146, 139, 2);
 
-        // Fila 3: Latitud y Longitud Fija
-        char latStr[24], lonStr[24];
-        snprintf(latStr, sizeof(latStr), "Lat: %.4f", cfg.fixedLat);
-        snprintf(lonStr, sizeof(lonStr), "Lon: %.4f", cfg.fixedLon);
-
-        _tft.fillRoundRect(6, 130, 150, 34, 3, COL_CARD);
-        _tft.drawRoundRect(6, 130, 150, 34, 3, COL_BORDER);
+        _tft.fillRoundRect(204, 130, 110, 34, 3, COL_CARD);
+        _tft.drawRoundRect(204, 130, 110, 34, 3, COL_BORDER);
         _tft.setTextColor(COL_WHITE, COL_CARD);
-        _tft.drawString(latStr, 14, 139, 2);
+        _tft.drawCentreString(lonStr, 259, 139, 2);
 
-        _tft.fillRoundRect(164, 130, 150, 34, 3, COL_CARD);
-        _tft.drawRoundRect(164, 130, 150, 34, 3, COL_BORDER);
-        _tft.setTextColor(COL_WHITE, COL_CARD);
-        _tft.drawString(lonStr, 172, 139, 2);
-
-        // Fila 4: Comentario de Baliza
+        // Fila 4 (y=169..205): Comentario de Baliza
         _tft.fillRoundRect(6, 169, 308, 36, 3, COL_CARD);
         _tft.drawRoundRect(6, 169, 308, 36, 3, COL_BORDER);
         _tft.setTextColor(COL_MUTED, COL_CARD);
@@ -516,7 +577,8 @@ void UiManager::drawConfig(bool fullRedraw) {
         char commShort[30];
         strlcpy(commShort, cfg.comment, sizeof(commShort));
         _tft.drawString(commShort, 72, 179, 2);
-    } else {
+
+    } else if (_cfgPage == 1) {
         // Página 2: Radio (Baofeng vs Yaesu), TX Delay, Volumen DAC, Intervalo Baliza, Digipeater
         _tft.fillRoundRect(6, 52, 308, 34, 3, COL_CARD);
         _tft.drawRoundRect(6, 52, 308, 34, 3, COL_BORDER);
@@ -559,6 +621,125 @@ void UiManager::drawConfig(bool fullRedraw) {
         _tft.drawRoundRect(6, 169, 308, 36, 3, COL_BORDER);
         _tft.setTextColor(cfg.digipeatWide1 ? COL_ORANGE : COL_MUTED, COL_CARD);
         _tft.drawCentreString(cfg.digipeatWide1 ? "Repetidor Digipeater WIDE1-1: ACTIVO" : "Repetidor Digipeater WIDE1-1: APAGADO", 160, 179, 2);
+
+    } else if (_cfgPage == 2) {
+        // Página 3: Configuración de WiFi e IGate APRS-IS
+        // Fila 1 (y=52..86): WiFi SSID y Contraseña WiFi
+        _tft.fillRoundRect(6, 52, 168, 34, 3, COL_CARD);
+        _tft.drawRoundRect(6, 52, 168, 34, 3, COL_BORDER);
+        char ssidDisp[24];
+        snprintf(ssidDisp, sizeof(ssidDisp), "WiFi:%s", strlen(cfg.wifiSsid) > 0 ? cfg.wifiSsid : "(Tocar)");
+        _tft.setTextColor(COL_YELLOW, COL_CARD);
+        _tft.drawString(ssidDisp, 12, 61, 2);
+
+        _tft.fillRoundRect(180, 52, 134, 34, 3, COL_CARD);
+        _tft.drawRoundRect(180, 52, 134, 34, 3, COL_BORDER);
+        _tft.setTextColor(COL_WHITE, COL_CARD);
+        _tft.drawCentreString(strlen(cfg.wifiPass) > 0 ? "Clave: [****]" : "Clave: (Vacia)", 247, 61, 2);
+
+        // Fila 2 (y=91..125): Servidor APRS-IS y Passcode
+        _tft.fillRoundRect(6, 91, 188, 34, 3, COL_CARD);
+        _tft.drawRoundRect(6, 91, 188, 34, 3, COL_BORDER);
+        char srvDisp[28];
+        snprintf(srvDisp, sizeof(srvDisp), "IS:%s", cfg.aprsIsServer);
+        _tft.setTextColor(COL_ACCENT, COL_CARD);
+        _tft.drawString(srvDisp, 12, 100, 2);
+
+        _tft.fillRoundRect(200, 91, 114, 34, 3, COL_CARD);
+        _tft.drawRoundRect(200, 91, 114, 34, 3, COL_BORDER);
+        char passDisp[22];
+        snprintf(passDisp, sizeof(passDisp), "Pass:%u%s",
+                 Igate.getEffectivePasscode(), cfg.aprsIsPasscode < 0 ? "(A)" : "");
+        _tft.setTextColor(COL_WHITE, COL_CARD);
+        _tft.drawCentreString(passDisp, 257, 100, 2);
+
+        // Fila 3 (y=130..164): Habilitar IGate + Modo de Baliza en IGate
+        _tft.fillRoundRect(6, 130, 146, 34, 3, COL_CARD);
+        _tft.drawRoundRect(6, 130, 146, 34, 3, COL_BORDER);
+        bool igOn = (cfg.stationMode == STATION_MODE_FIXED_IGATE) || cfg.igateEnabled;
+        _tft.setTextColor(igOn ? COL_GREEN : COL_MUTED, COL_CARD);
+        _tft.drawCentreString(igOn ? "IGate RF->IS: SI" : "IGate RF->IS: NO", 79, 139, 2);
+
+        _tft.fillRoundRect(158, 130, 156, 34, 3, COL_CARD);
+        _tft.drawRoundRect(158, 130, 156, 34, 3, COL_BORDER);
+        const char* bcnModeStr = (cfg.igateBeaconMode == IGATE_BCN_BOTH)    ? "Baliza: RF + IS" :
+                                 (cfg.igateBeaconMode == IGATE_BCN_IS_ONLY) ? "Baliza: SOLO IS" :
+                                                                              "Baliza: SOLO RF";
+        _tft.setTextColor(COL_YELLOW, COL_CARD);
+        _tft.drawCentreString(bcnModeStr, 236, 139, 2);
+
+        // Fila 4 (y=169..205): Estado en vivo APRS-IS + Botón Reconectar
+        _tft.fillRoundRect(6, 169, 222, 36, 3, COL_CARD);
+        _tft.drawRoundRect(6, 169, 222, 36, 3, COL_BORDER);
+        char stLine[36];
+        snprintf(stLine, sizeof(stLine), "%s (%lu pkts)", Igate.getStateText(), (unsigned long)Igate.getRfToIsCount());
+        _tft.setTextColor(Igate.isAprsIsVerified() ? COL_GREEN : COL_ORANGE, COL_CARD);
+        _tft.drawString(stLine, 12, 179, 2);
+
+        _tft.fillRoundRect(234, 169, 80, 36, 3, COL_ACCENT);
+        _tft.setTextColor(COL_BG, COL_ACCENT);
+        _tft.drawCentreString("CONECTAR", 274, 179, 2);
+
+    } else {
+        // Página 4: Actualización de Firmware por MicroSD y OTA (Web / HTTP)
+        // Fila 1 (y=52..86): Estado MicroSD + Botón [ESCANEAR SD]
+        _tft.fillRoundRect(6, 52, 212, 34, 3, COL_CARD);
+        _tft.drawRoundRect(6, 52, 212, 34, 3, COL_BORDER);
+        char sdShort[32];
+        strlcpy(sdShort, Updater.getStatusMsg(), sizeof(sdShort));
+        _tft.setTextColor(COL_WHITE, COL_CARD);
+        _tft.drawString(sdShort, 12, 61, 2);
+
+        _tft.fillRoundRect(224, 52, 90, 34, 3, COL_ACCENT);
+        _tft.setTextColor(COL_BG, COL_ACCENT);
+        _tft.drawCentreString("ESCANEAR SD", 269, 61, 2);
+
+        // Fila 2 (y=91..125): Botón para instalar archivo .bin detectado en MicroSD
+        if (Updater.getSdBinCount() > 0) {
+            const SdBinEntry& b = Updater.getSdBin(0);
+            char installLbl[46];
+            snprintf(installLbl, sizeof(installLbl), "INSTALAR SD: %s (%luKB)",
+                     b.path, (unsigned long)(b.sizeBytes / 1024UL));
+            _tft.fillRoundRect(6, 91, 308, 34, 3, COL_GREEN);
+            _tft.setTextColor(COL_BG, COL_GREEN);
+            _tft.drawCentreString(installLbl, 160, 100, 2);
+        } else {
+            _tft.fillRoundRect(6, 91, 308, 34, 3, COL_CARD);
+            _tft.drawRoundRect(6, 91, 308, 34, 3, COL_BORDER);
+            _tft.setTextColor(COL_MUTED, COL_CARD);
+            _tft.drawCentreString("SD: Copia /firmware.bin o /update.bin y escanea", 160, 100, 2);
+        }
+
+        // Fila 3 (y=130..164): URL OTA Remota + Botón [OTA NUBE]
+        _tft.fillRoundRect(6, 130, 212, 34, 3, COL_CARD);
+        _tft.drawRoundRect(6, 130, 212, 34, 3, COL_BORDER);
+        char urlShort[28];
+        if (strlen(cfg.otaServerUrl) > 0) {
+            snprintf(urlShort, sizeof(urlShort), "URL:%s", cfg.otaServerUrl);
+            _tft.setTextColor(COL_YELLOW, COL_CARD);
+        } else {
+            strlcpy(urlShort, "URL OTA: (Toca para editar)", sizeof(urlShort));
+            _tft.setTextColor(COL_MUTED, COL_CARD);
+        }
+        _tft.drawString(urlShort, 12, 139, 2);
+
+        _tft.fillRoundRect(224, 130, 90, 34, 3, COL_ORANGE);
+        _tft.setTextColor(COL_BG, COL_ORANGE);
+        _tft.drawCentreString("OTA URL", 269, 139, 2);
+
+        // Fila 4 (y=169..205): Portal Web OTA Local (WiFi / Punto de Acceso CYD-APRS)
+        uint16_t portalBg = Updater.isWebPortalRunning() ? COL_GREEN : COL_HEADER;
+        _tft.fillRoundRect(6, 169, 308, 36, 3, portalBg);
+        _tft.drawRoundRect(6, 169, 308, 36, 3, COL_ACCENT);
+        _tft.setTextColor(Updater.isWebPortalRunning() ? COL_BG : COL_WHITE, portalBg);
+        if (Updater.isWebPortalRunning()) {
+            char portalTxt[46];
+            snprintf(portalTxt, sizeof(portalTxt), "WEB OTA ACTIVO -> http://%s",
+                     Updater.getPortalAddress().c_str());
+            _tft.drawCentreString(portalTxt, 160, 179, 2);
+        } else {
+            _tft.drawCentreString("ACTIVAR PORTAL WEB / AP WIFI OTA (192.168.4.1)", 160, 179, 2);
+        }
     }
 }
 
@@ -566,8 +747,9 @@ void UiManager::openKeyboard(KeyboardTarget target, const char* title, const cha
     _kbTarget = target;
     strlcpy(_kbTitle, title, sizeof(_kbTitle));
     strlcpy(_kbBuffer, initialVal ? initialVal : "", sizeof(_kbBuffer));
-    _kbMaxLen = (maxLen > 66) ? 66 : maxLen;
-    _kbShift = true;
+    _kbMaxLen = (maxLen > 94) ? 94 : maxLen;
+    _kbShift = (target != KB_CFG_WIFI_PASS && target != KB_CFG_APRS_SERVER && target != KB_CFG_OTA_URL);
+    _kbSymbols = false;
     _needsFullRedraw = true;
 }
 
@@ -602,20 +784,24 @@ void UiManager::drawKeyboard() {
     strlcat(dispBuf, "_", sizeof(dispBuf));
     _tft.drawString(dispBuf, 12, 36, 2);
 
-    // Filas del teclado QWERTY + Números
+    // Filas del teclado QWERTY + Números + Símbolos (para claves WiFi y URLs)
     static const char* row0 = "1234567890";
     static const char* row1U = "QWERTYUIOP";
     static const char* row1L = "qwertyuiop";
     static const char* row2U = "ASDFGHJKL-";
     static const char* row2L = "asdfghjkl-";
-    static const char* row3U = "ZXCVBNM./!";
-    static const char* row3L = "zxcvbnm./!";
+    static const char* row3U = "ZXCVBNM./:";
+    static const char* row3L = "zxcvbnm./:";
+
+    static const char* row1S = "!@#$%^&*()";
+    static const char* row2S = "_+=[]{};'\"";
+    static const char* row3S = "?<>\\|,~`./";
 
     const char* rows[4] = {
         row0,
-        _kbShift ? row1U : row1L,
-        _kbShift ? row2U : row2L,
-        _kbShift ? row3U : row3L
+        _kbSymbols ? row1S : (_kbShift ? row1U : row1L),
+        _kbSymbols ? row2S : (_kbShift ? row2U : row2L),
+        _kbSymbols ? row3S : (_kbShift ? row3U : row3L)
     };
 
     for (int r = 0; r < 4; r++) {
@@ -630,20 +816,24 @@ void UiManager::drawKeyboard() {
         }
     }
 
-    // Fila inferior: [MAY/min] [ESPACIO] [BORRAR]
+    // Fila inferior: [MAY/min] [SIMB] [ESPACIO] [BORRAR]
     int yBot = 202;
-    _tft.fillRoundRect(4, yBot, 72, 34, 3, _kbShift ? COL_ACCENT : COL_HEADER);
+    _tft.fillRoundRect(4, yBot, 58, 34, 3, _kbShift ? COL_ACCENT : COL_HEADER);
     _tft.setTextColor(_kbShift ? COL_BG : COL_WHITE, _kbShift ? COL_ACCENT : COL_HEADER);
-    _tft.drawCentreString("MAY/min", 40, yBot + 9, 2);
+    _tft.drawCentreString("MAY/m", 33, yBot + 9, 2);
 
-    _tft.fillRoundRect(82, yBot, 154, 34, 3, COL_CARD);
-    _tft.drawRoundRect(82, yBot, 154, 34, 3, COL_BORDER);
+    _tft.fillRoundRect(66, yBot, 52, 34, 3, _kbSymbols ? COL_YELLOW : COL_HEADER);
+    _tft.setTextColor(_kbSymbols ? COL_BG : COL_WHITE, _kbSymbols ? COL_YELLOW : COL_HEADER);
+    _tft.drawCentreString("#?=", 92, yBot + 9, 2);
+
+    _tft.fillRoundRect(122, yBot, 114, 34, 3, COL_CARD);
+    _tft.drawRoundRect(122, yBot, 114, 34, 3, COL_BORDER);
     _tft.setTextColor(COL_WHITE, COL_CARD);
-    _tft.drawCentreString("ESPACIO", 159, yBot + 9, 2);
+    _tft.drawCentreString("ESPACIO", 179, yBot + 9, 2);
 
-    _tft.fillRoundRect(242, yBot, 72, 34, 3, COL_ORANGE);
+    _tft.fillRoundRect(240, yBot, 74, 34, 3, COL_ORANGE);
     _tft.setTextColor(COL_BG, COL_ORANGE);
-    _tft.drawCentreString("<- BORR", 278, yBot + 9, 2);
+    _tft.drawCentreString("<- BORR", 277, yBot + 9, 2);
 }
 
 void UiManager::handleKeyboardTouch(uint16_t tx, uint16_t ty) {
@@ -673,13 +863,17 @@ void UiManager::handleKeyboardTouch(uint16_t tx, uint16_t ty) {
             static const char* row1L = "qwertyuiop";
             static const char* row2U = "ASDFGHJKL-";
             static const char* row2L = "asdfghjkl-";
-            static const char* row3U = "ZXCVBNM./!";
-            static const char* row3L = "zxcvbnm./!";
+            static const char* row3U = "ZXCVBNM./:";
+            static const char* row3L = "zxcvbnm./:";
+            static const char* row1S = "!@#$%^&*()";
+            static const char* row2S = "_+=[]{};'\"";
+            static const char* row3S = "?<>\\|,~`./";
+
             const char* rows[4] = {
                 row0,
-                _kbShift ? row1U : row1L,
-                _kbShift ? row2U : row2L,
-                _kbShift ? row3U : row3L
+                _kbSymbols ? row1S : (_kbShift ? row1U : row1L),
+                _kbSymbols ? row2S : (_kbShift ? row2U : row2L),
+                _kbSymbols ? row3S : (_kbShift ? row3U : row3L)
             };
             size_t len = strlen(_kbBuffer);
             if (len < _kbMaxLen) {
@@ -693,17 +887,21 @@ void UiManager::handleKeyboardTouch(uint16_t tx, uint16_t ty) {
 
     // Fila inferior (y >= 200)
     if (ty >= 200) {
-        if (tx < 78) {
+        if (tx < 64) {
             _kbShift = !_kbShift;
+            _kbSymbols = false;
             _needsFullRedraw = true;
-        } else if (tx >= 82 && tx < 238) {
+        } else if (tx >= 64 && tx < 120) {
+            _kbSymbols = !_kbSymbols;
+            _needsFullRedraw = true;
+        } else if (tx >= 120 && tx < 238) {
             size_t len = strlen(_kbBuffer);
             if (len < _kbMaxLen) {
                 _kbBuffer[len] = ' ';
                 _kbBuffer[len + 1] = '\0';
                 _needsFullRedraw = true;
             }
-        } else if (tx >= 240) {
+        } else if (tx >= 238) {
             size_t len = strlen(_kbBuffer);
             if (len > 0) {
                 _kbBuffer[len - 1] = '\0';
@@ -736,6 +934,21 @@ void UiManager::commitKeyboardValue() {
         case KB_CFG_LON:
             cfg.fixedLon = atof(_kbBuffer);
             break;
+        case KB_CFG_WIFI_SSID:
+            strlcpy(cfg.wifiSsid, _kbBuffer, sizeof(cfg.wifiSsid));
+            break;
+        case KB_CFG_WIFI_PASS:
+            strlcpy(cfg.wifiPass, _kbBuffer, sizeof(cfg.wifiPass));
+            break;
+        case KB_CFG_APRS_SERVER:
+            strlcpy(cfg.aprsIsServer, _kbBuffer, sizeof(cfg.aprsIsServer));
+            break;
+        case KB_CFG_APRS_PASSCODE:
+            cfg.aprsIsPasscode = atoi(_kbBuffer);
+            break;
+        case KB_CFG_OTA_URL:
+            strlcpy(cfg.otaServerUrl, _kbBuffer, sizeof(cfg.otaServerUrl));
+            break;
         default:
             break;
     }
@@ -767,10 +980,20 @@ void UiManager::handleTouch(uint16_t tx, uint16_t ty) {
 }
 
 void UiManager::handleDashboardTouch(uint16_t tx, uint16_t ty) {
+    // Tocar Tarjeta 1 (arriba a la izquierda) permite alternar rápido entre Tracker y Estación Fija + IGate
+    if (ty >= 28 && ty <= 94 && tx >= 6 && tx <= 204) {
+        AprsConfig& cfg = Aprs.config();
+        StationMode nextMode = (StationMode)((cfg.stationMode + 1) % 3);
+        Aprs.applyStationMode(nextMode);
+        Igate.reconnectNow();
+        _needsFullRedraw = true;
+        return;
+    }
+
     if (ty >= 174 && ty <= 208) {
         if (tx >= 6 && tx <= 112) {
-            // [TX BALIZA] por RF
-            showToast("Transmitiendo Baliza APRS (1200 bps)...", COL_RED);
+            // [TX BALIZA] por RF y/o APRS-IS
+            showToast("Enviando Baliza APRS...", COL_RED);
             Aprs.sendPositionBeacon(false);
             _needsFullRedraw = true;
         } else if (tx >= 117 && tx <= 219) {
@@ -810,7 +1033,7 @@ void UiManager::handleMessagesTouch(uint16_t tx, uint16_t ty) {
         }
         if (tx >= 150 && tx <= 246) {
             // [ENVIAR RF]
-            showToast("Enviando Mensaje APRS por RF...", COL_RED);
+            showToast("Enviando Mensaje APRS...", COL_RED);
             Aprs.sendTextMessage(_composeTo, _composeText, false);
             _needsFullRedraw = true;
             return;
@@ -854,15 +1077,16 @@ void UiManager::handleStationsTouch(uint16_t tx, uint16_t ty) {
 void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
     AprsConfig& cfg = Aprs.config();
 
-    // Botones de barra superior de Config: [PAG 1/2] y [GUARDAR]
+    // Botones de barra superior de Config: [PAG x/4] y [GUARDAR]
     if (ty >= 24 && ty <= 48) {
-        if (tx >= 186 && tx <= 250) {
-            _cfgPage = (_cfgPage == 0) ? 1 : 0;
+        if (tx >= 180 && tx <= 251) {
+            _cfgPage = (_cfgPage + 1) % 4;
             _needsFullRedraw = true;
             return;
         }
         if (tx >= 252) {
             Aprs.saveConfig();
+            Igate.reconnectNow();
             showToast("Configuracion guardada en Flash NVS!", COL_GREEN);
             _needsFullRedraw = true;
             return;
@@ -870,33 +1094,39 @@ void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
     }
 
     if (_cfgPage == 0) {
-        // Fila 1 (y=52..86): Indicativo / SSID
+        // Fila 1 (y=52..86): Selector de Modo Operativo (Tracker / Estación Fija + IGate / Fija RF)
         if (ty >= 52 && ty <= 86) {
-            if (tx < 198) {
+            StationMode nextMode = (StationMode)((cfg.stationMode + 1) % 3);
+            Aprs.applyStationMode(nextMode);
+            _needsFullRedraw = true;
+            return;
+        }
+        // Fila 2 (y=91..125): Indicativo / SSID / Símbolo
+        if (ty >= 91 && ty <= 125) {
+            if (tx < 140) {
                 openKeyboard(KB_CFG_CALLSIGN, "TU INDICATIVO (SIN SSID):", cfg.callsign, 6);
-            } else {
+            } else if (tx < 218) {
                 cfg.ssid = (cfg.ssid + 1) % 16;
+                _needsFullRedraw = true;
+            } else {
+                if (cfg.symbolCode == '[')      { cfg.symbolTable = '/'; cfg.symbolCode = '>'; }
+                else if (cfg.symbolCode == '>') { cfg.symbolTable = 'I'; cfg.symbolCode = '&'; }
+                else if (cfg.symbolCode == '&') { cfg.symbolTable = '/'; cfg.symbolCode = '-'; }
+                else if (cfg.symbolCode == '-') { cfg.symbolTable = '/'; cfg.symbolCode = 'k'; }
+                else                            { cfg.symbolTable = '/'; cfg.symbolCode = '['; }
                 _needsFullRedraw = true;
             }
             return;
         }
-        // Fila 2 (y=91..125): Modo Posición / Símbolo
-        if (ty >= 91 && ty <= 125) {
-            if (tx < 198) {
-                cfg.posMode = (cfg.posMode == POS_MODE_FIXED) ? POS_MODE_GPS : POS_MODE_FIXED;
-            } else {
-                if (cfg.symbolCode == '[') cfg.symbolCode = '>';
-                else if (cfg.symbolCode == '>') cfg.symbolCode = '-';
-                else if (cfg.symbolCode == '-') cfg.symbolCode = 'k';
-                else cfg.symbolCode = '[';
-            }
-            _needsFullRedraw = true;
-            return;
-        }
-        // Fila 3 (y=130..164): Latitud / Longitud
+        // Fila 3 (y=130..164): Posición (FIJA/GPS) / Latitud / Longitud
         if (ty >= 130 && ty <= 164) {
+            if (tx < 90) {
+                cfg.posMode = (cfg.posMode == POS_MODE_FIXED) ? POS_MODE_GPS : POS_MODE_FIXED;
+                _needsFullRedraw = true;
+                return;
+            }
             char numBuf[20];
-            if (tx < 160) {
+            if (tx < 202) {
                 snprintf(numBuf, sizeof(numBuf), "%.4f", cfg.fixedLat);
                 openKeyboard(KB_CFG_LAT, "LATITUD DECIMAL (Sur -):", numBuf, 12);
             } else {
@@ -910,7 +1140,8 @@ void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
             openKeyboard(KB_CFG_COMMENT, "COMENTARIO DE BALIZA:", cfg.comment, 40);
             return;
         }
-    } else {
+
+    } else if (_cfgPage == 1) {
         // Página 2: Radio Preset / TX Delay / TX Volume / Intervalo / Auto-ACK / Digi
         if (ty >= 52 && ty <= 86) {
             RadioType nextType = (cfg.radioType == RADIO_BAOFENG) ? RADIO_YAESU : RADIO_BAOFENG;
@@ -920,12 +1151,10 @@ void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
         }
         if (ty >= 91 && ty <= 125) {
             if (tx < 160) {
-                // Ciclar TX Delay: 200 -> 300 -> 450 -> 600 -> 750 ms
                 cfg.txDelayMs += 100;
                 if (cfg.txDelayMs > 750) cfg.txDelayMs = 200;
                 cfg.radioType = RADIO_CUSTOM;
             } else {
-                // Ciclar Volumen TX: 25% -> 50% -> 75% -> 100%
                 cfg.txVolume += 15;
                 if (cfg.txVolume > 100) cfg.txVolume = 25;
                 cfg.radioType = RADIO_CUSTOM;
@@ -936,7 +1165,6 @@ void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
         }
         if (ty >= 130 && ty <= 164) {
             if (tx < 160) {
-                // Ciclar intervalo de baliza: 60s, 120s, 300s, 600s, 900s
                 if (cfg.beaconIntervalSec < 120) cfg.beaconIntervalSec = 120;
                 else if (cfg.beaconIntervalSec < 300) cfg.beaconIntervalSec = 300;
                 else if (cfg.beaconIntervalSec < 600) cfg.beaconIntervalSec = 600;
@@ -953,6 +1181,84 @@ void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
             _needsFullRedraw = true;
             return;
         }
+
+    } else if (_cfgPage == 2) {
+        // Página 3: WiFi e IGate APRS-IS
+        if (ty >= 52 && ty <= 86) {
+            if (tx < 176) {
+                openKeyboard(KB_CFG_WIFI_SSID, "NOMBRE RED WIFI (SSID):", cfg.wifiSsid, 32);
+            } else {
+                openKeyboard(KB_CFG_WIFI_PASS, "CONTRASENA WIFI:", cfg.wifiPass, 63);
+            }
+            return;
+        }
+        if (ty >= 91 && ty <= 125) {
+            if (tx < 196) {
+                openKeyboard(KB_CFG_APRS_SERVER, "SERVIDOR APRS-IS:", cfg.aprsIsServer, 44);
+            } else {
+                char passBuf[16];
+                snprintf(passBuf, sizeof(passBuf), "%ld", (long)cfg.aprsIsPasscode);
+                openKeyboard(KB_CFG_APRS_PASSCODE, "PASSCODE (-1 = AUTO):", passBuf, 8);
+            }
+            return;
+        }
+        if (ty >= 130 && ty <= 164) {
+            if (tx < 154) {
+                cfg.igateEnabled = !cfg.igateEnabled;
+                if (cfg.igateEnabled) cfg.stationMode = STATION_MODE_FIXED_IGATE;
+            } else {
+                cfg.igateBeaconMode = (cfg.igateBeaconMode + 1) % 3;
+            }
+            _needsFullRedraw = true;
+            return;
+        }
+        if (ty >= 169 && ty <= 205) {
+            Aprs.saveConfig();
+            showToast("Conectando WiFi e IGate APRS-IS...", COL_ACCENT);
+            Igate.reconnectNow();
+            _needsFullRedraw = true;
+            return;
+        }
+
+    } else {
+        // Página 4: Actualización por MicroSD y Web OTA
+        if (ty >= 52 && ty <= 86) {
+            showToast("Escaneando tarjeta MicroSD...", COL_ACCENT);
+            Updater.scanSdBinaries();
+            _needsFullRedraw = true;
+            return;
+        }
+        if (ty >= 91 && ty <= 125) {
+            if (Updater.getSdBinCount() > 0) {
+                Updater.installSdBinary(Updater.getSdBin(0).path, _tft);
+                _needsFullRedraw = true;
+            } else {
+                Updater.scanSdBinaries();
+                _needsFullRedraw = true;
+            }
+            return;
+        }
+        if (ty >= 130 && ty <= 164) {
+            if (tx < 220) {
+                openKeyboard(KB_CFG_OTA_URL, "URL SERVIDOR O ARCHIVO .BIN:", cfg.otaServerUrl, 94);
+            } else {
+                Aprs.saveConfig();
+                showToast("Verificando actualizacion OTA...", COL_ORANGE);
+                Updater.checkAndApplyWebOta(cfg.otaServerUrl, _tft);
+                _needsFullRedraw = true;
+            }
+            return;
+        }
+        if (ty >= 169 && ty <= 205) {
+            if (Updater.isWebPortalRunning()) {
+                Updater.stopWebPortal();
+            } else {
+                showToast("Iniciando Portal Web y AP WiFi...", COL_GREEN);
+                Updater.startWebPortal(true);
+            }
+            _needsFullRedraw = true;
+            return;
+        }
     }
 }
 
@@ -963,4 +1269,3 @@ void UiManager::showToast(const char* msg, uint16_t bgColor) {
     _tft.setTextColor(fg, bgColor);
     _tft.drawCentreString(msg, 160, 102, 2);
 }
-

@@ -22,7 +22,12 @@ enum KeyboardTarget : uint8_t {
     KB_CFG_COMMENT,
     KB_CFG_LAT,
     KB_CFG_LON,
-    KB_CFG_ALT
+    KB_CFG_ALT,
+    KB_CFG_WIFI_SSID,
+    KB_CFG_WIFI_PASS,
+    KB_CFG_APRS_SERVER,
+    KB_CFG_APRS_PASSCODE,
+    KB_CFG_OTA_URL
 };
 
 class UiManager {
@@ -32,12 +37,15 @@ public:
     void begin();
     void update();
 
+    TFT_eSPI& tft() { return _tft; }
+    void requestRedraw() { _needsFullRedraw = true; }
+
 private:
     TFT_eSPI _tft;
     CST820Touch _touch;
 
     UiTab _currentTab = TAB_DASHBOARD;
-    uint8_t _cfgPage = 0; // 0 = Estación/Posición, 1 = Radio/Módem
+    uint8_t _cfgPage = 0; // 0 = Modo/Estación, 1 = Radio/Baliza, 2 = WiFi/IGate APRS-IS, 3 = SD/OTA Update
     bool _needsFullRedraw = true;
     uint32_t _lastDynamicUpdateMs = 0;
     uint32_t _lastTouchMs = 0;
@@ -49,16 +57,16 @@ private:
 
     // Estado del teclado táctil en pantalla
     KeyboardTarget _kbTarget = KB_NONE;
-    char _kbBuffer[72];
-    char _kbTitle[32];
+    char _kbBuffer[98];
+    char _kbTitle[36];
     uint8_t _kbMaxLen = 64;
     bool _kbShift = true;
+    bool _kbSymbols = false;
 
     // Caché para evitar parpadeo en actualizaciones dinámicas
     uint32_t _lastDrawnRxCount = 0xFFFFFFFF;
     uint32_t _lastDrawnTxCount = 0xFFFFFFFF;
-    uint8_t  _lastDrawnAudioPct = 0xFF;
-    bool     _lastDrawnTxState = false;
+    uint32_t _lastDrawnIgCount = 0xFFFFFFFF;
 
     void drawTopBar();
     void drawBottomTabs();
@@ -88,4 +96,3 @@ private:
 };
 
 extern UiManager Ui;
-

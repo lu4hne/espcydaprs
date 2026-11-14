@@ -21,6 +21,8 @@ struct DecodedPacket {
     char infoText[140];     // Payload APRS crudo
     AprsPacketType type;
     bool hasPosition;
+    bool gatedToIs;         // true si este paquete fue inyectado exitosamente en APRS-IS
+    bool fromAprsIs;        // true si provino de APRS-IS en vez de RF
     double lat;
     double lon;
     float distanceKm;
@@ -89,11 +91,15 @@ public:
     void loadConfig();
     void saveConfig();
     void applyRadioPreset(RadioType type);
+    void applyStationMode(StationMode mode);
 
     // Acciones APRS
     bool sendPositionBeacon(bool loopbackTest = false);
     bool sendTextMessage(const char* destCallsign, const char* messageText, bool loopbackTest = false);
     bool sendCustomStatus(const char* statusText, bool loopbackTest = false);
+
+    // Recepción de línea TNC2 desde APRS-IS (para mensajes entrantes o IGate IS->RF)
+    bool handleAprsIsIncomingLine(const char* tnc2Line);
 
     // Posición activa actual (Fija o GPS según configuración)
     double getCurrentLat() const;
@@ -151,6 +157,7 @@ private:
     void sendAckPacket(const char* toCallsign, const char* msgId);
     void processMessageRetries();
     void pollGps();
+    bool wasStationHeardRecentlyOnRf(const char* callsign, uint32_t maxAgeMs = 1800000UL) const;
 
     static void parseCallsignSsid(const char* fullStr, char* outCall, uint8_t* outSsid);
     static void formatFullCallsign(const char* call, uint8_t ssid, char* outStr, size_t maxLen);
