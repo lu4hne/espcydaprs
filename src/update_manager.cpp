@@ -1,7 +1,10 @@
 #include "update_manager.h"
+#include "afsk_modem.h"
 #include "ax25_aprs.h"
 #include "igate_manager.h"
 #include "ui_manager.h"
+#include <soc/soc.h>
+#include <soc/rtc_cntl_reg.h>
 #include <Update.h>
 #include <SD.h>
 #include <SPI.h>
@@ -471,10 +474,16 @@ void UpdateManager::begin() {
 
 void UpdateManager::startWebPortal(bool forceAccessPoint) {
     if (forceAccessPoint || WiFi.status() != WL_CONNECTED) {
+        Modem.setPaused(true);
+        delay(10);
+        WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
         WiFi.mode(WIFI_AP_STA);
+        WiFi.setTxPower(WIFI_POWER_15dBm);
         char apName[28];
         snprintf(apName, sizeof(apName), "CYD-APRS-%s", Aprs.config().callsign);
         WiFi.softAP(apName);
+        delay(20);
+        Modem.setPaused(false);
         _apActive = true;
         Serial.printf("[WEB OTA] Punto de Acceso WiFi iniciado: SSID='%s' -> http://%s\n",
                       apName, WiFi.softAPIP().toString().c_str());

@@ -31,6 +31,11 @@ static void afskDspTaskTrampoline(void* arg) {
     self->dspTaskLoop();
 }
 
+static void IRAM_ATTR afskRxTimerCallback(void* arg) {
+    AfskModem* self = static_cast<AfskModem*>(arg);
+    self->onRxTimerSample();
+}
+
 AfskModem::AfskModem()
     : _rxQueue(nullptr), _txQueue(nullptr) {
     memset(_sampleBuf, 0, sizeof(_sampleBuf));
@@ -74,15 +79,26 @@ void AfskModem::begin() {
     _rxQueue = xQueueCreate(10, sizeof(RawAx25Frame));
     _txQueue = xQueueCreate(6, sizeof(TxJob));
 
-    // Lanzar tarea DSP en Core 0 con alta prioridad
+    // 1. Iniciar timer periódico de hardware (esp_timer) a 9600 Hz (104 us) para muestreo RX
+    //    Consume < 6% de CPU y deja 94% libre para la pila WiFi/TCP-IP y el Watchdog de Core 0.
+    esp_timer_create_args_t timerArgs = {};
+    timerArgs.callback = &afskRxTimerCallback;
+    timerArgs.arg = this;
+    timerArgs.dispatch_method = ESP_TIMER_TASK;
+    timerArgs.name = "afsk_rx_9600";
+    if (esp_timer_create(&timerArgs, &_rxTimer) == ESP_OK) {
+        esp_timer_start_periodic(_rxTimer, 1000000ULL / AFSK_SAMPLE_RATE); // 104 us
+    }
+
+    // 2. Lanzar tarea de transmisión AX.25 (duerme en xQueueReceive con 0% CPU cuando no transmite)
     xTaskCreatePinnedToCore(
         afskDspTaskTrampoline,
-        "AFSK_DSP",
-        6144,
+        "AFSK_TX",
+        4096,
         this,
-        configMAX_PRIORITIES - 2,
+        4,
         nullptr,
-        0
+        1
     );
 }
 
@@ -168,12 +184,42 @@ void AfskModem::setPtt(bool active) {
     }
 }
 
+void AfskModem::onRxTimerSample() {
+    if (_transmitting || _paused) {
+        return;
+    }
+
+    // Muestreo ADC a 9600 Hz en GPIO 35 (ADC1_CH7)
+    int rawAdc = adc1_get_raw(ADC1_CHANNEL_7);
+
+    // Filtro IIR para remover componente DC (~1.65V -> ~2048)
+    _dcEstimate = 0.995f * _dcEstimate + 0.005f * (float)rawAdc;
+    int16_t centered = (int16_t)((float)rawAdc - _dcEstimate);
+
+    // Medición de nivel de audio para el vúmetro de pantalla
+    int16_t absSample = abs(centered);
+    if (absSample > _peakInWindow) {
+        _peakInWindow = absSample;
+    }
+    _levelWindowSamples++;
+    if (_levelWindowSamples >= 960) { // Actualizar cada 100 ms
+        int pct = (_peakInWindow * 100) / 1400;
+        if (pct > 100) pct = 100;
+        _rxLevelPercent = (uint8_t)pct;
+        _carrierDetected = (_peakInWindow > 90) && _rxInFrame;
+        _peakInWindow = 0;
+        _levelWindowSamples = 0;
+    }
+
+    // Procesar muestra en el demodulador DSP si supera el piso de ruido mínimo
+    if (absSample > 25 || _rxInFrame) {
+        if (absSample > _rxPeakTrack) _rxPeakTrack = absSample;
+        processRxSample(centered);
+    }
+}
+
 void AfskModem::dspTaskLoop() {
     const int64_t samplePeriodUs = 1000000LL / AFSK_SAMPLE_RATE; // ~104 us
-    int64_t nextSampleTime = esp_timer_get_time();
-
-    uint32_t levelWindowSamples = 0;
-    int32_t peakInWindow = 0;
 
     // Incrementos de fase DDS (16 bits): f * 65536 / 9600
     const uint16_t phaseIncMark  = (uint16_t)((AFSK_MARK_FREQ * 65536UL) / AFSK_SAMPLE_RATE);
@@ -182,160 +228,115 @@ void AfskModem::dspTaskLoop() {
     TxJob currentJob;
 
     while (true) {
-        // Verificar si hay paquete para transmitir
-        if (xQueueReceive(_txQueue, &currentJob, 0) == pdTRUE) {
-            uint8_t activePin = _txAudioPin;
-            bool useSigmaDelta = (activePin != AFSK_DAC2_PIN);
-
-            setPtt(true);
-
-            // Si es loopback, reiniciar estado del demodulador para recibir limpio
-            if (currentJob.loopback) {
-                _rxOnesCount = 0;
-                _rxInFrame = false;
-                _rxBitIndex = 0;
-                _rxFrameLen = 0;
-                _lpfCorr = 0.0f;
-                _pllCounter = 0;
-            }
-
-            uint16_t ddsPhase = 0;
-            bool txToneMark = true; // Tono actual (Mark = true, Space = false)
-            uint8_t txOnesCount = 0;
-
-            // Lambda para emitir 1 bit a 1200 bps (8 muestras a 9600 Hz)
-            auto sendBit = [&](bool bitVal, bool stuffEnabled) {
-                auto emitPhysicalBit = [&](bool logicalBit) {
-                    // Codificación NRZI: bit '0' invierte el tono, bit '1' mantiene el tono
-                    if (!logicalBit) {
-                        txToneMark = !txToneMark;
-                    }
-                    uint16_t phaseInc = txToneMark ? phaseIncMark : phaseIncSpace;
-
-                    for (int s = 0; s < AFSK_SAMPLES_PER_BIT; s++) {
-                        ddsPhase += phaseInc;
-                        uint8_t rawSine = s_sineLut[ddsPhase >> 8];
-                        int16_t centered = (int16_t)rawSine - 128;
-                        int16_t scaled = (centered * (int16_t)_txVolume) / 100;
-                        uint8_t dacVal = (uint8_t)(128 + scaled);
-
-                        // 1. Salida por DAC2 interno (GPIO 26 -> conector SPK P4)
-                        dac_output_voltage(DAC_CHANNEL_2, dacVal);
-
-                        // 2. Salida simultánea por Sigma-Delta en el pin del conector blanco elegido (27, 21, 4 o 17)
-                        if (useSigmaDelta) {
-                            sigmaDeltaWrite(SIGMADELTA_TX_CH, dacVal);
-                        }
-
-                        if (currentJob.loopback) {
-                            processRxSample(centered * 8);
-                        }
-
-                        nextSampleTime += samplePeriodUs;
-                        int64_t now = esp_timer_get_time();
-                        if (nextSampleTime > now) {
-                            ets_delay_us((uint32_t)(nextSampleTime - now));
-                        } else {
-                            nextSampleTime = now;
-                        }
-                    }
-                };
-
-                emitPhysicalBit(bitVal);
-
-                if (stuffEnabled) {
-                    if (bitVal) {
-                        txOnesCount++;
-                        if (txOnesCount == 5) {
-                            // Bit-stuffing: insertar un '0' tras cinco '1's consecutivos
-                            emitPhysicalBit(false);
-                            txOnesCount = 0;
-                        }
-                    } else {
-                        txOnesCount = 0;
-                    }
-                }
-            };
-
-            auto sendByte = [&](uint8_t byteVal, bool isFlag) {
-                for (uint8_t b = 0; b < 8; b++) {
-                    bool bit = (byteVal >> b) & 0x01; // LSB primero
-                    sendBit(bit, !isFlag);
-                }
-            };
-
-            // 1. Preámbulo de banderas 0x7E (TX Delay)
-            for (uint16_t i = 0; i < _txDelayFlags; i++) {
-                sendByte(0x7E, true);
-            }
-
-            // 2. Cuerpo de la trama AX.25 + FCS (con bit-stuffing activo)
-            txOnesCount = 0;
-            for (uint16_t i = 0; i < currentJob.len; i++) {
-                sendByte(currentJob.data[i], false);
-            }
-
-            // 3. Cola de banderas 0x7E (TX Tail)
-            for (uint16_t i = 0; i < _txTailFlags; i++) {
-                sendByte(0x7E, true);
-            }
-
-            // Silenciar DAC al punto medio (1.65V), desacoplar Sigma-Delta y soltar PTT
-            dac_output_voltage(DAC_CHANNEL_2, 128);
-            setPtt(false);
-            _txCount++;
-
-            // Dar respiro al watchdog de FreeRTOS tras transmitir
-            vTaskDelay(pdMS_TO_TICKS(2));
-            nextSampleTime = esp_timer_get_time();
+        // Dormir esperando paquete a transmitir (0% CPU en reposo)
+        if (xQueueReceive(_txQueue, &currentJob, pdMS_TO_TICKS(100)) != pdTRUE) {
             continue;
         }
 
-        // --- MODO RECEPCIÓN (Muestreo ADC a 9600 Hz en GPIO 35) ---
-        int rawAdc = adc1_get_raw(ADC1_CHANNEL_7);
+        uint8_t activePin = _txAudioPin;
+        bool useSigmaDelta = (activePin != AFSK_DAC2_PIN);
 
-        // Filtro IIR para remover componente DC (~1.65V -> ~2048)
-        _dcEstimate = 0.995f * _dcEstimate + 0.005f * (float)rawAdc;
-        int16_t centered = (int16_t)((float)rawAdc - _dcEstimate);
+        setPtt(true);
 
-        // Medición de nivel de audio para el vúmetro de pantalla
-        int16_t absSample = abs(centered);
-        if (absSample > peakInWindow) {
-            peakInWindow = absSample;
-        }
-        levelWindowSamples++;
-        if (levelWindowSamples >= 960) { // Actualizar cada 100 ms
-            int pct = (peakInWindow * 100) / 1400;
-            if (pct > 100) pct = 100;
-            _rxLevelPercent = (uint8_t)pct;
-            _carrierDetected = (peakInWindow > 90) && _rxInFrame;
-            peakInWindow = 0;
-            levelWindowSamples = 0;
+        // Si es loopback, reiniciar estado del demodulador para recibir limpio
+        if (currentJob.loopback) {
+            _rxOnesCount = 0;
+            _rxInFrame = false;
+            _rxBitIndex = 0;
+            _rxFrameLen = 0;
+            _lpfCorr = 0.0f;
+            _pllCounter = 0;
         }
 
-        // Procesar muestra en el demodulador DSP si supera el piso de ruido mínimo
-        if (absSample > 25 || _rxInFrame) {
-            if (absSample > _rxPeakTrack) _rxPeakTrack = absSample;
-            processRxSample(centered);
-        }
+        uint16_t ddsPhase = 0;
+        bool txToneMark = true; // Tono actual (Mark = true, Space = false)
+        uint8_t txOnesCount = 0;
+        int64_t nextSampleTime = esp_timer_get_time();
 
-        // Sincronización precisa de tiempo (9600 Hz) + yield periódico para el Watchdog
-        nextSampleTime += samplePeriodUs;
-        int64_t now = esp_timer_get_time();
-        if (nextSampleTime > now) {
-            uint32_t waitUs = (uint32_t)(nextSampleTime - now);
-            if (waitUs > 15) {
-                ets_delay_us(waitUs);
+        // Lambda para emitir 1 bit a 1200 bps (8 muestras a 9600 Hz)
+        auto sendBit = [&](bool bitVal, bool stuffEnabled) {
+            auto emitPhysicalBit = [&](bool logicalBit) {
+                // Codificación NRZI: bit '0' invierte el tono, bit '1' mantiene el tono
+                if (!logicalBit) {
+                    txToneMark = !txToneMark;
+                }
+                uint16_t phaseInc = txToneMark ? phaseIncMark : phaseIncSpace;
+
+                for (int s = 0; s < AFSK_SAMPLES_PER_BIT; s++) {
+                    ddsPhase += phaseInc;
+                    uint8_t rawSine = s_sineLut[ddsPhase >> 8];
+                    int16_t centered = (int16_t)rawSine - 128;
+                    int16_t scaled = (centered * (int16_t)_txVolume) / 100;
+                    uint8_t dacVal = (uint8_t)(128 + scaled);
+
+                    // 1. Salida por DAC2 interno (GPIO 26 -> conector SPK P4)
+                    dac_output_voltage(DAC_CHANNEL_2, dacVal);
+
+                    // 2. Salida simultánea por Sigma-Delta en el pin del conector blanco elegido (27, 21, 4 o 17)
+                    if (useSigmaDelta) {
+                        sigmaDeltaWrite(SIGMADELTA_TX_CH, dacVal);
+                    }
+
+                    if (currentJob.loopback) {
+                        processRxSample(centered * 8);
+                    }
+
+                    nextSampleTime += samplePeriodUs;
+                    int64_t now = esp_timer_get_time();
+                    if (nextSampleTime > now) {
+                        ets_delay_us((uint32_t)(nextSampleTime - now));
+                    } else {
+                        nextSampleTime = now;
+                    }
+                }
+            };
+
+            emitPhysicalBit(bitVal);
+
+            if (stuffEnabled) {
+                if (bitVal) {
+                    txOnesCount++;
+                    if (txOnesCount == 5) {
+                        // Bit-stuffing: insertar un '0' tras cinco '1's consecutivos
+                        emitPhysicalBit(false);
+                        txOnesCount = 0;
+                    }
+                } else {
+                    txOnesCount = 0;
+                }
             }
-        } else {
-            nextSampleTime = now;
+        };
+
+        auto sendByte = [&](uint8_t byteVal, bool isFlag) {
+            for (uint8_t b = 0; b < 8; b++) {
+                bool bit = (byteVal >> b) & 0x01; // LSB primero
+                sendBit(bit, !isFlag);
+            }
+        };
+
+        // 1. Preámbulo de banderas 0x7E (TX Delay)
+        for (uint16_t i = 0; i < _txDelayFlags; i++) {
+            sendByte(0x7E, true);
         }
 
-        // Ceder brevemente cada ~200 ms cuando no hay trama activa para evitar WDT en Core 0
-        if (!_rxInFrame && levelWindowSamples == 0) {
-            vTaskDelay(1);
-            nextSampleTime = esp_timer_get_time();
+        // 2. Cuerpo de la trama AX.25 + FCS (con bit-stuffing activo)
+        txOnesCount = 0;
+        for (uint16_t i = 0; i < currentJob.len; i++) {
+            sendByte(currentJob.data[i], false);
         }
+
+        // 3. Cola de banderas 0x7E (TX Tail)
+        for (uint16_t i = 0; i < _txTailFlags; i++) {
+            sendByte(0x7E, true);
+        }
+
+        // Silenciar DAC al punto medio (1.65V), desacoplar Sigma-Delta y soltar PTT
+        dac_output_voltage(DAC_CHANNEL_2, 128);
+        setPtt(false);
+        _txCount++;
+
+        // Dar respiro al planificador de FreeRTOS tras transmitir
+        vTaskDelay(pdMS_TO_TICKS(5));
     }
 }
 

@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
+#include <esp_timer.h>
 #include "config.h"
 
 #define MAX_AX25_FRAME_LEN  280
@@ -19,6 +20,10 @@ public:
 
     void begin();
     void configure(uint16_t txDelayMs, uint16_t txTailMs, uint8_t txVolumePercent, uint8_t txAudioPin = AFSK_DEFAULT_TX_PIN);
+
+    // Pausa temporalmente el muestreo ADC RX durante la calibración RF PHY de WiFi.begin()
+    void setPaused(bool paused) { _paused = paused; }
+    bool isPaused() const { return _paused; }
 
     // Encola una trama AX.25 (sin CRC ni banderas 0x7E; el módem calcula CRC-16 y agrega 0x7E)
     bool transmitFrame(const uint8_t* payload, uint16_t len, bool loopbackAlso = false);
@@ -37,18 +42,24 @@ public:
     // Calcula el CRC-16 CCITT (AX.25 estándar: init 0xFFFF, poly 0x8408 reflejado)
     static uint16_t calcCrc16(const uint8_t* data, uint16_t len);
 
-    // Loop interno DSP ejecutado en Core 0
+    // Loop de tarea TX y callback de timer periódico RX (9600 Hz)
     void dspTaskLoop();
+    void onRxTimerSample();
 
 private:
     QueueHandle_t _rxQueue;
     QueueHandle_t _txQueue;
+    esp_timer_handle_t _rxTimer = nullptr;
 
     volatile bool _transmitting = false;
+    volatile bool _paused = false;
     volatile bool _carrierDetected = false;
     volatile uint8_t _rxLevelPercent = 0;
     volatile uint32_t _txCount = 0;
     volatile uint32_t _rxCount = 0;
+
+    uint32_t _levelWindowSamples = 0;
+    int32_t _peakInWindow = 0;
 
     uint16_t _txDelayFlags = 45; // Cantidad de bytes 0x7E de preámbulo
     uint16_t _txTailFlags = 6;   // Cantidad de bytes 0x7E de cola

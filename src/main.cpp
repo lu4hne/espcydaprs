@@ -1,4 +1,6 @@
 #include <Arduino.h>
+#include <soc/soc.h>
+#include <soc/rtc_cntl_reg.h>
 #include "config.h"
 #include "afsk_modem.h"
 #include "ax25_aprs.h"
@@ -24,6 +26,9 @@ static void toggleBoardHardwareProfile() {
 }
 
 void setup() {
+    // Evitar falsos resets de Brownout causados por el regulador LDO 3.3V de la CYD al iniciar el radio WiFi
+    WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
+
     Serial.begin(115200);
     delay(200);
     pinMode(CYD_BOOT_BTN_PIN, INPUT_PULLUP);
@@ -51,19 +56,22 @@ void setup() {
     Serial.println(F("  Boton BOOT   : Mantener presionado 2 seg para alternar Placa ILI9341 <-> ST7789"));
     Serial.println(F("============================================================"));
 
-    // 2. Iniciar Interfaz Gráfica Táctil (ILI9341/ST7789 + Touch CST820/XPT2046 auto-detectado)
+    // 2. Iniciar Interfaz Gráfica Táctil y dibujar pantalla inmediatamente
     Ui.begin();
+    Ui.requestRedraw();
+    Ui.update();
 
     // 3. Verificar si existe /update.bin o /firmware.bin en la MicroSD al arrancar
     Updater.checkAndApplySdUpdateOnBoot(Ui.tft());
 
-    // 4. Iniciar Módem DSP AFSK 1200 bps en Core 0 con el pin TX configurado
+    // 4. Iniciar Módem DSP AFSK 1200 bps con el pin TX configurado
     Modem.begin();
 
     // 5. Iniciar Cliente WiFi / IGate APRS-IS y Gestor OTA
     Igate.begin();
     Updater.begin();
     Ui.requestRedraw();
+    Ui.update();
 }
 
 void loop() {
@@ -140,8 +148,9 @@ void loop() {
             AprsConfig& c = Aprs.config();
             const char* modeName = (c.stationMode == STATION_MODE_FIXED_IGATE) ? "FIJA+IGATE" :
                                    (c.stationMode == STATION_MODE_TRACKER)     ? "TRACKER" : "FIJA-RF";
-            Serial.printf("[STATUS] Call: %s-%u | Modo: %s | Pos: %.4f, %.4f | TX: %lu | RX: %lu | IGATE: %s (%lu pkts, Pass=%u) | AudioRX: %u%%\n",
+            Serial.printf("[STATUS] Call: %s-%u | Modo: %s | IP: %s | Pos: %.4f, %.4f | TX: %lu | RX: %lu | IGATE: %s (%lu pkts, Pass=%u) | AudioRX: %u%%\n",
                           c.callsign, c.ssid, modeName,
+                          Igate.getLocalIpString().c_str(),
                           Aprs.getCurrentLat(), Aprs.getCurrentLon(),
                           (unsigned long)Modem.getTxPacketCount(),
                           (unsigned long)Modem.getRxPacketCount(),

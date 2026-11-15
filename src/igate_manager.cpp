@@ -1,4 +1,7 @@
 #include "igate_manager.h"
+#include "afsk_modem.h"
+#include <soc/soc.h>
+#include <soc/rtc_cntl_reg.h>
 
 IgateManager Igate;
 
@@ -41,7 +44,9 @@ void IgateManager::begin() {
     bool needWifi = (cfg.stationMode == STATION_MODE_FIXED_IGATE) || cfg.igateEnabled;
 
     if (needWifi && strlen(cfg.wifiSsid) > 0) {
-        connectWifi();
+        // Diferir el inicio de WiFi ~1.5s tras el arranque para que la pantalla se dibuje primero
+        _state = IGATE_WIFI_WAIT;
+        _lastWifiAttemptMs = millis() - 18500UL;
     } else {
         _state = IGATE_DISABLED;
     }
@@ -54,11 +59,22 @@ void IgateManager::connectWifi() {
         return;
     }
 
+    // Pausar muestreo ADC1 del módem y desactivar brownout temporalmente durante la calibración RF PHY
+    Modem.setPaused(true);
+    delay(10);
+    WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
+
     if (WiFi.getMode() != WIFI_AP_STA) {
         WiFi.mode(WIFI_STA);
     }
+    WiFi.setTxPower(WIFI_POWER_15dBm); // Reduce pico de corriente en el regulador LDO 3.3V de la CYD
+    WiFi.setSleep(false);
     WiFi.setAutoReconnect(true);
     WiFi.begin(cfg.wifiSsid, cfg.wifiPass);
+
+    delay(30);
+    Modem.setPaused(false);
+
     _lastWifiAttemptMs = millis();
     _state = IGATE_WIFI_WAIT;
     Serial.printf("[IGATE] Conectando a WiFi '%s'...\n", cfg.wifiSsid);
@@ -145,9 +161,7 @@ void IgateManager::update() {
         }
         _state = IGATE_WIFI_WAIT;
         if (strlen(cfg.wifiSsid) > 0 && (now - _lastWifiAttemptMs >= 20000UL)) {
-            _lastWifiAttemptMs = now;
-            Serial.printf("[IGATE] Reintentando conexion WiFi a '%s'...\n", cfg.wifiSsid);
-            WiFi.reconnect();
+            connectWifi();
         }
         return;
     }
@@ -163,12 +177,19 @@ void IgateManager::update() {
             _lastTcpAttemptMs = now;
             _state = IGATE_TCP_CONNECTING;
 
-            const char* server = (strlen(cfg.aprsIsServer) > 0) ? cfg.aprsIsServer : "samerica.aprs2.net";
+            const char* server = (strlen(cfg.aprsIsServer) > 0 && strcmp(cfg.aprsIsServer, "samerica.aprs2.net") != 0)
+                                 ? cfg.aprsIsServer
+                                 : "rotate.aprs2.net";
             uint16_t port = (cfg.aprsIsPort > 0) ? cfg.aprsIsPort : 14580;
 
             Serial.printf("[IGATE] Conectando TCP a %s:%u...\n", server, port);
             _client.setTimeout(3000);
-            if (_client.connect(server, port)) {
+            bool tcpOk = _client.connect(server, port);
+            if (!tcpOk && strcmp(server, "rotate.aprs2.net") != 0) {
+                Serial.println(F("[IGATE] Probando servidor global rotate.aprs2.net:14580..."));
+                tcpOk = _client.connect("rotate.aprs2.net", port);
+            }
+            if (tcpOk) {
                 _state = IGATE_CONNECTED;
                 _lastServerActivityMs = now;
                 _lastKeepAliveTxMs = now;

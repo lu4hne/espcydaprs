@@ -70,7 +70,10 @@ void AprsEngine::loadConfig() {
     strlcpy(_cfg.wifiSsid, prefs.getString("wSsid", "").c_str(), sizeof(_cfg.wifiSsid));
     strlcpy(_cfg.wifiPass, prefs.getString("wPass", "").c_str(), sizeof(_cfg.wifiPass));
     _cfg.igateEnabled = prefs.getBool("igEn", (_cfg.stationMode == STATION_MODE_FIXED_IGATE));
-    strlcpy(_cfg.aprsIsServer, prefs.getString("isSrv", "samerica.aprs2.net").c_str(), sizeof(_cfg.aprsIsServer));
+    strlcpy(_cfg.aprsIsServer, prefs.getString("isSrv", "rotate.aprs2.net").c_str(), sizeof(_cfg.aprsIsServer));
+    if (strcmp(_cfg.aprsIsServer, "samerica.aprs2.net") == 0 || strlen(_cfg.aprsIsServer) == 0) {
+        strlcpy(_cfg.aprsIsServer, "rotate.aprs2.net", sizeof(_cfg.aprsIsServer));
+    }
     _cfg.aprsIsPort = prefs.getUShort("isPort", 14580);
     _cfg.aprsIsPasscode = prefs.getInt("isPass", -1);
     _cfg.igateBeaconMode = prefs.getUChar("igBcn", IGATE_BCN_BOTH);
