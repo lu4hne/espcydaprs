@@ -112,11 +112,12 @@ void UiManager::update() {
         return;
     }
 
-    // 3. Redibujado completo al cambiar de pestaña o recibir nuevo paquete
-    uint32_t rxNow = Modem.getRxPacketCount();
-    uint32_t txNow = Modem.getTxPacketCount();
-    uint32_t igNow = Igate.getRfToIsCount();
-    if ((rxNow != _lastDrawnRxCount || igNow != _lastDrawnIgCount) &&
+    // 3. Redibujado completo al cambiar de pestaña o recibir nuevo paquete / ACK
+    uint32_t rxNow  = Modem.getRxPacketCount();
+    uint32_t txNow  = Modem.getTxPacketCount();
+    uint32_t igNow  = Igate.getRfToIsCount();
+    uint32_t revNow = Aprs.getUiRevision();
+    if ((rxNow != _lastDrawnRxCount || igNow != _lastDrawnIgCount || revNow != _lastDrawnUiRev) &&
         (_currentTab == TAB_MONITOR || _currentTab == TAB_STATIONS || _currentTab == TAB_MESSAGES)) {
         _needsFullRedraw = true;
     }
@@ -131,6 +132,7 @@ void UiManager::update() {
         _lastDrawnRxCount = rxNow;
         _lastDrawnTxCount = txNow;
         _lastDrawnIgCount = igNow;
+        _lastDrawnUiRev   = revNow;
         return;
     }
 
@@ -438,10 +440,13 @@ void UiManager::drawMessages(bool fullRedraw) {
     _tft.setTextColor(COL_YELLOW, COL_BG);
     _tft.drawString(_composeTo, 54, 31, 2);
 
-    // Botón [ENVIAR RF] y [TEST]
+    // Botón [ENVIAR IS+RF / ENVIAR RF] y [LOOP]
     _tft.fillRoundRect(150, 29, 96, 22, 3, COL_GREEN);
     _tft.setTextColor(COL_BG, COL_GREEN);
-    _tft.drawCentreString("ENVIAR RF", 198, 32, 2);
+    const char* sendLbl = Igate.isAprsIsConnected()
+        ? (Aprs.config().igateBeaconMode == IGATE_BCN_IS_ONLY ? "ENVIAR IS" : "ENVIAR IS+RF")
+        : "ENVIAR RF";
+    _tft.drawCentreString(sendLbl, 198, 32, 2);
 
     _tft.fillRoundRect(252, 29, 58, 22, 3, COL_ACCENT);
     _tft.setTextColor(COL_BG, COL_ACCENT);
@@ -472,24 +477,29 @@ void UiManager::drawMessages(bool fullRedraw) {
         _tft.fillRoundRect(4, y, 312, 36, 3, COL_CARD);
         _tft.drawRoundRect(4, y, 312, 36, 3, COL_BORDER);
 
-        char hdr[44];
+        char hdr[48];
         uint16_t badgeCol = COL_ACCENT;
         const char* statusStr = "RX";
         if (!m.incoming) {
             if (m.state == MSG_STATE_TX_ACK) {
-                statusStr = "ACK OK";
+                statusStr = m.sentViaIs ? "ACK OK (IS)" : "ACK OK";
                 badgeCol = COL_GREEN;
             } else if (m.state == MSG_STATE_TX_WAIT) {
-                statusStr = "ESP ACK";
+                statusStr = m.sentViaIs ? "IS->ESP ACK" : "ESP ACK";
                 badgeCol = COL_ORANGE;
             } else {
-                statusStr = "SIN ACK";
-                badgeCol = COL_RED;
+                if (m.sentViaIs) {
+                    statusStr = "ENVIADO IS (S/ACK)";
+                    badgeCol = COL_ACCENT;
+                } else {
+                    statusStr = "SIN ACK";
+                    badgeCol = COL_RED;
+                }
             }
             snprintf(hdr, sizeof(hdr), "A %s [%s]", m.peerCall, statusStr);
         } else {
             badgeCol = COL_YELLOW;
-            snprintf(hdr, sizeof(hdr), "DE %s [RECIBIDO]", m.peerCall);
+            snprintf(hdr, sizeof(hdr), "DE %s [%s]", m.peerCall, m.sentViaIs ? "RX IGATE" : "RX RF");
         }
 
         _tft.setTextColor(badgeCol, COL_CARD);
@@ -552,19 +562,20 @@ void UiManager::drawStations(bool fullRedraw) {
 void UiManager::drawConfig(bool fullRedraw) {
     AprsConfig& cfg = Aprs.config();
 
-    static const char* const PAGE_TITLES[4] = {
-        "CONF 1/4: MODO Y ESTACION",
-        "CONF 2/4: RADIO Y BALIZA",
-        "CONF 3/4: WIFI E IGATE",
-        "CONF 4/4: SD Y WEB OTA"
+    static const char* const PAGE_TITLES[5] = {
+        "CONF 1/5: MODO Y ESTACION",
+        "CONF 2/5: RADIO Y BALIZA",
+        "CONF 3/5: WIFI E IGATE",
+        "CONF 4/5: SD Y WEB OTA",
+        "CONF 5/5: CREDITOS Y VERSION"
     };
 
     // Encabezado con selector de página y botón GUARDAR
     _tft.setTextColor(COL_ACCENT, COL_BG);
-    _tft.drawString(PAGE_TITLES[_cfgPage % 4], 6, 27, 2);
+    _tft.drawString(PAGE_TITLES[_cfgPage % 5], 6, 27, 2);
 
     char nextLbl[16];
-    snprintf(nextLbl, sizeof(nextLbl), "PAG %u/4 >", ((_cfgPage + 1) % 4) + 1);
+    snprintf(nextLbl, sizeof(nextLbl), "PAG %u/5 >", (_cfgPage % 5) + 1);
     _tft.fillRoundRect(184, 25, 66, 22, 3, COL_HEADER);
     _tft.drawRoundRect(184, 25, 66, 22, 3, COL_BORDER);
     _tft.setTextColor(COL_WHITE, COL_HEADER);
@@ -758,7 +769,7 @@ void UiManager::drawConfig(bool fullRedraw) {
         _tft.setTextColor(COL_BG, COL_ACCENT);
         _tft.drawCentreString("CONECTAR", 274, 179, 2);
 
-    } else {
+    } else if (_cfgPage == 3) {
         // Página 4: Actualización de Firmware por MicroSD y OTA (Web / HTTP)
         // Fila 1 (y=52..86): Estado MicroSD + Botón [ESCANEAR SD]
         _tft.fillRoundRect(6, 52, 212, 34, 3, COL_CARD);
@@ -818,6 +829,49 @@ void UiManager::drawConfig(bool fullRedraw) {
         } else {
             _tft.drawCentreString("ACTIVAR PORTAL WEB / AP WIFI OTA (192.168.4.1)", 160, 179, 2);
         }
+
+    } else {
+        // Página 5: Créditos del Proyecto y Versión Instalada
+        // Tarjeta 1 (y=52..92): Autor y Créditos
+        _tft.fillRoundRect(6, 52, 308, 40, 4, COL_CARD);
+        _tft.drawRoundRect(6, 52, 308, 40, 4, COL_ACCENT);
+        _tft.setTextColor(COL_YELLOW, COL_CARD);
+        _tft.drawCentreString("ESP32 CYD APRS — Proyecto de LU4HNE", 160, 56, 2);
+        _tft.setTextColor(COL_WHITE, COL_CARD);
+        _tft.drawCentreString("Transceptor AFSK 1200 / Tracker / IGate APRS-IS", 160, 73, 2);
+
+        // Tarjeta 2 (y=96..136): Versión de Firmware y Compilación
+        _tft.fillRoundRect(6, 96, 308, 40, 4, COL_CARD);
+        _tft.drawRoundRect(6, 96, 308, 40, 4, COL_BORDER);
+        char verLine[48];
+        snprintf(verLine, sizeof(verLine), "Version Instalada: v%s (%s)", FIRMWARE_VERSION, __DATE__);
+        _tft.setTextColor(COL_GREEN, COL_CARD);
+        _tft.drawCentreString(verLine, 160, 100, 2);
+
+        char hwLine[48];
+        snprintf(hwLine, sizeof(hwLine), "Driver: %s | Touch: %s | TX: IO%u+26",
+                 cfg.boardModel == BOARD_MODEL_ST7789 ? "ST7789" : "ILI9341",
+                 _touch.isCapacitive() ? "CST820" : "XPT2046",
+                 cfg.txAudioPin);
+        _tft.setTextColor(COL_ACCENT, COL_CARD);
+        _tft.drawCentreString(hwLine, 160, 117, 2);
+
+        // Tarjeta 3 (y=140..174): Red, IP y Memoria Libre
+        _tft.fillRoundRect(6, 140, 308, 34, 4, COL_CARD);
+        _tft.drawRoundRect(6, 140, 308, 34, 4, COL_BORDER);
+        char netLine[48];
+        snprintf(netLine, sizeof(netLine), "IP: %s | Pass:%u | RAM:%luKB",
+                 Igate.getLocalIpString().c_str(),
+                 Igate.getEffectivePasscode(),
+                 (unsigned long)(ESP.getFreeHeap() / 1024UL));
+        _tft.setTextColor(COL_WHITE, COL_CARD);
+        _tft.drawCentreString(netLine, 160, 149, 2);
+
+        // Fila 4 (y=178..206): Botón de Reinicio Rápido
+        _tft.fillRoundRect(6, 178, 308, 28, 4, COL_HEADER);
+        _tft.drawRoundRect(6, 178, 308, 28, 4, COL_ORANGE);
+        _tft.setTextColor(COL_ORANGE, COL_HEADER);
+        _tft.drawCentreString("REINICIAR EQUIPO ESP32 (73 de LU4HNE!)", 160, 184, 2);
     }
 }
 
@@ -1132,6 +1186,15 @@ void UiManager::handleMessagesTouch(uint16_t tx, uint16_t ty) {
         openKeyboard(KB_MSG_TEXT, "TEXTO DEL MENSAJE APRS:", _composeText, 64);
         return;
     }
+
+    // Tocar un mensaje del historial copia el indicativo para responder rápido
+    if (ty >= 90 && ty < 208) {
+        int idx = (ty - 90) / 39;
+        if (idx >= 0 && idx < Aprs.getMessageCount() && idx < 3) {
+            strlcpy(_composeTo, Aprs.getMessage(idx).peerCall, sizeof(_composeTo));
+            _needsFullRedraw = true;
+        }
+    }
 }
 
 void UiManager::handleStationsTouch(uint16_t tx, uint16_t ty) {
@@ -1155,10 +1218,10 @@ void UiManager::handleStationsTouch(uint16_t tx, uint16_t ty) {
 void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
     AprsConfig& cfg = Aprs.config();
 
-    // Botones de barra superior de Config: [PAG x/4] y [GUARDAR]
+    // Botones de barra superior de Config: [PAG x/5] y [GUARDAR]
     if (ty >= 24 && ty <= 48) {
         if (tx >= 180 && tx <= 251) {
-            _cfgPage = (_cfgPage + 1) % 4;
+            _cfgPage = (_cfgPage + 1) % 5;
             _needsFullRedraw = true;
             return;
         }
@@ -1316,7 +1379,7 @@ void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
             return;
         }
 
-    } else {
+    } else if (_cfgPage == 3) {
         // Página 4: Actualización por MicroSD y Web OTA
         if (ty >= 52 && ty <= 86) {
             showToast("Escaneando tarjeta MicroSD...", COL_ACCENT);
@@ -1353,6 +1416,15 @@ void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
                 Updater.startWebPortal(true);
             }
             _needsFullRedraw = true;
+            return;
+        }
+
+    } else {
+        // Página 5: Créditos y Versión Instalada
+        if (ty >= 176 && ty <= 208) {
+            showToast("Reiniciando ESP32 CYD APRS...", COL_ORANGE);
+            delay(600);
+            ESP.restart();
             return;
         }
     }

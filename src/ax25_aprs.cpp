@@ -447,10 +447,15 @@ bool AprsEngine::sendTextMessage(const char* destCallsign, const char* messageTe
     if (!destCallsign || strlen(destCallsign) == 0 || !messageText) return false;
 
     char cleanDest[12];
+    while (*destCallsign == ' ') destCallsign++;
     strlcpy(cleanDest, destCallsign, sizeof(cleanDest));
+    for (int i = (int)strlen(cleanDest) - 1; i >= 0 && cleanDest[i] == ' '; i--) {
+        cleanDest[i] = '\0';
+    }
     for (int i = 0; cleanDest[i]; i++) {
         cleanDest[i] = (char)toupper((unsigned char)cleanDest[i]);
     }
+    if (cleanDest[0] == '\0') return false;
 
     char seqStr[8];
     snprintf(seqStr, sizeof(seqStr), "%u", (unsigned)_nextMsgSeq);
@@ -467,6 +472,7 @@ bool AprsEngine::sendTextMessage(const char* destCallsign, const char* messageTe
     AprsMessageEntry& entry = _messages[0];
     entry.active = true;
     entry.incoming = false;
+    entry.sentViaIs = false;
     strlcpy(entry.peerCall, cleanDest, sizeof(entry.peerCall));
     strlcpy(entry.text, messageText, sizeof(entry.text));
     strlcpy(entry.msgId, seqStr, sizeof(entry.msgId));
@@ -476,9 +482,28 @@ bool AprsEngine::sendTextMessage(const char* destCallsign, const char* messageTe
     entry.timestampMs = millis();
     if (_msgCount < MAX_MESSAGES_LIST) _msgCount++;
 
-    // Si el IGate está conectado a APRS-IS y no es prueba loopback, inyectar también por APRS-IS
-    if (!loopbackTest && Igate.isAprsIsConnected()) {
-        Igate.sendSelfBeaconToAprsIs(info);
+    // Si el IGate está conectado a APRS-IS y no es prueba loopback, inyectar por APRS-IS
+    bool sentToIs = false;
+    bool iGateActive = (_cfg.stationMode == STATION_MODE_FIXED_IGATE) || _cfg.igateEnabled;
+    if (!loopbackTest && Igate.isAprsIsConnected() &&
+        (!iGateActive || _cfg.igateBeaconMode != IGATE_BCN_RF_ONLY)) {
+        sentToIs = Igate.sendSelfBeaconToAprsIs(info);
+        entry.sentViaIs = sentToIs;
+    }
+
+    // Nota APRS-IS: javAPRSSrvr nunca devuelve (echo) un paquete al mismo socket TCP que lo originó.
+    // Si el usuario envía un mensaje de autoprueba a su propio indicativo por IGate verificado, confirmar ACK:
+    char myFullCall[12];
+    formatFullCallsign(_cfg.callsign, _cfg.ssid, myFullCall, sizeof(myFullCall));
+    if (sentToIs && (strcasecmp(cleanDest, myFullCall) == 0 || strcasecmp(cleanDest, _cfg.callsign) == 0)) {
+        entry.state = MSG_STATE_TX_ACK;
+        entry.retriesLeft = 0;
+    }
+
+    _uiRevision++;
+
+    if (!loopbackTest && iGateActive && _cfg.igateBeaconMode == IGATE_BCN_IS_ONLY && sentToIs) {
+        return true;
     }
 
     uint8_t frame[MAX_AX25_FRAME_LEN];
@@ -549,21 +574,28 @@ void AprsEngine::processMessageRetries() {
                 snprintf(info, sizeof(info), ":%-9.9s:%-.64s{%s", m.peerCall, m.text, m.msgId);
 
                 if (Igate.isAprsIsConnected()) {
-                    Igate.sendSelfBeaconToAprsIs(info);
+                    if (Igate.sendSelfBeaconToAprsIs(info)) {
+                        m.sentViaIs = true;
+                    }
                 }
 
-                uint8_t frame[MAX_AX25_FRAME_LEN];
-                uint16_t frameLen = buildAx25Frame(
-                    frame,
-                    _cfg.callsign, _cfg.ssid,
-                    _cfg.destCall, 0,
-                    _cfg.path1, _cfg.path1Ssid,
-                    _cfg.path2, _cfg.path2Ssid,
-                    info
-                );
-                Modem.transmitFrame(frame, frameLen, false);
+                bool iGateActive = (_cfg.stationMode == STATION_MODE_FIXED_IGATE) || _cfg.igateEnabled;
+                if (!(iGateActive && _cfg.igateBeaconMode == IGATE_BCN_IS_ONLY && m.sentViaIs)) {
+                    uint8_t frame[MAX_AX25_FRAME_LEN];
+                    uint16_t frameLen = buildAx25Frame(
+                        frame,
+                        _cfg.callsign, _cfg.ssid,
+                        _cfg.destCall, 0,
+                        _cfg.path1, _cfg.path1Ssid,
+                        _cfg.path2, _cfg.path2Ssid,
+                        info
+                    );
+                    Modem.transmitFrame(frame, frameLen, false);
+                }
+                _uiRevision++;
             } else {
                 m.state = MSG_STATE_TX_FAIL;
+                _uiRevision++;
             }
         }
     }
@@ -631,18 +663,26 @@ bool AprsEngine::handleAprsIsIncomingLine(const char* tnc2Line) {
             addressee[i] = '\0';
         }
 
-        const char* body = &info[11];
-
         // 1. Verificar si es para nuestra propia estación (procesa mensaje o ACK entrante)
-        handleIncomingMessage(pkt, addressee, body);
+        parseAprsInfo(&pkt);
 
-        // 2. Si está habilitado IGate IS->RF y el destinatario fue escuchado por RF recientemente,
-        // retransmitir en VHF/UHF con formato de tercer partido "}SRC>DST,TCPIP,MYCALL*:INFO"
         char myFullCall[12];
         formatFullCallsign(_cfg.callsign, _cfg.ssid, myFullCall, sizeof(myFullCall));
         bool isForMe = (strcasecmp(addressee, myFullCall) == 0) ||
-                       (strcasecmp(addressee, _cfg.callsign) == 0);
+                       (strcasecmp(addressee, _cfg.callsign) == 0) ||
+                       (strncasecmp(addressee, _cfg.callsign, strlen(_cfg.callsign)) == 0 &&
+                        addressee[strlen(_cfg.callsign)] == '-');
 
+        if (isForMe) {
+            _packetLog[_packetHead] = pkt;
+            _packetHead = (_packetHead + 1) % MAX_PACKET_LOG;
+            if (_packetCount < MAX_PACKET_LOG) _packetCount++;
+            _uiRevision++;
+            return true;
+        }
+
+        // 2. Si está habilitado IGate IS->RF y el destinatario fue escuchado por RF recientemente,
+        // retransmitir en VHF/UHF con formato de tercer partido "}SRC>DST,TCPIP,MYCALL*:INFO"
         if (!isForMe && _cfg.igateIsToRfMsg && wasStationHeardRecentlyOnRf(addressee)) {
             char thirdPartyInfo[180];
             snprintf(thirdPartyInfo, sizeof(thirdPartyInfo),
@@ -660,6 +700,7 @@ bool AprsEngine::handleAprsIsIncomingLine(const char* tnc2Line) {
             );
             Modem.transmitFrame(frame, frameLen, false);
             Serial.printf("[IGATE IS->RF] Retransmitido a estacion local %s: %s\n", addressee, thirdPartyInfo);
+            _uiRevision++;
             return true;
         }
     }
@@ -883,16 +924,36 @@ void AprsEngine::handleIncomingMessage(const DecodedPacket& pkt, const char* add
     formatFullCallsign(_cfg.callsign, _cfg.ssid, myFullCall, sizeof(myFullCall));
 
     bool isForMe = (strcasecmp(addressee, myFullCall) == 0) ||
-                   (strcasecmp(addressee, _cfg.callsign) == 0);
+                   (strcasecmp(addressee, _cfg.callsign) == 0) ||
+                   (strncasecmp(addressee, _cfg.callsign, strlen(_cfg.callsign)) == 0 &&
+                    addressee[strlen(_cfg.callsign)] == '-');
 
     // ¿Es un ACK dirigido a nosotros?
-    if (strncmp(body, "ack", 3) == 0) {
+    if (strncasecmp(body, "ack", 3) == 0) {
         if (!isForMe) return;
-        const char* ackId = body + 3;
+        char cleanAck[12];
+        const char* pAck = body + 3;
+        while (*pAck == ' ') pAck++;
+        strlcpy(cleanAck, pAck, sizeof(cleanAck));
+        for (int i = 0; cleanAck[i]; i++) {
+            if (cleanAck[i] == ' ' || cleanAck[i] == '\r' || cleanAck[i] == '\n' || cleanAck[i] == '{') {
+                cleanAck[i] = '\0';
+                break;
+            }
+        }
+
         for (int i = 0; i < _msgCount; i++) {
-            if (_messages[i].active && !_messages[i].incoming &&
-                strcmp(_messages[i].msgId, ackId) == 0) {
-                _messages[i].state = MSG_STATE_TX_ACK;
+            if (_messages[i].active && !_messages[i].incoming) {
+                bool idMatch = (strcasecmp(_messages[i].msgId, cleanAck) == 0) ||
+                               (isdigit((unsigned char)cleanAck[0]) &&
+                                isdigit((unsigned char)_messages[i].msgId[0]) &&
+                                atoi(_messages[i].msgId) == atoi(cleanAck));
+                if (idMatch) {
+                    _messages[i].state = MSG_STATE_TX_ACK;
+                    _messages[i].retriesLeft = 0;
+                    _uiRevision++;
+                    Serial.printf("[APRS MSG] ACK confirmado de %s (ID=%s)\n", pkt.srcCall, cleanAck);
+                }
             }
         }
         return;
@@ -905,7 +966,18 @@ void AprsEngine::handleIncomingMessage(const DecodedPacket& pkt, const char* add
     char* brace = strrchr(cleanText, '{');
     if (brace) {
         *brace = '\0';
-        strlcpy(msgId, brace + 1, sizeof(msgId));
+        const char* pId = brace + 1;
+        while (*pId == ' ') pId++;
+        strlcpy(msgId, pId, sizeof(msgId));
+        for (int i = 0; msgId[i]; i++) {
+            if (msgId[i] == ' ' || msgId[i] == '\r' || msgId[i] == '\n') {
+                msgId[i] = '\0';
+                break;
+            }
+        }
+    }
+    for (int i = (int)strlen(cleanText) - 1; i >= 0 && cleanText[i] == ' '; i--) {
+        cleanText[i] = '\0';
     }
 
     // Si es para nosotros (o queremos guardar todos los mensajes dirigidos a nuestra estación)
@@ -918,7 +990,7 @@ void AprsEngine::handleIncomingMessage(const DecodedPacket& pkt, const char* add
         for (int i = 0; i < _msgCount; i++) {
             if (_messages[i].active && _messages[i].incoming &&
                 strcasecmp(_messages[i].peerCall, pkt.srcCall) == 0 &&
-                strlen(msgId) > 0 && strcmp(_messages[i].msgId, msgId) == 0) {
+                strlen(msgId) > 0 && strcasecmp(_messages[i].msgId, msgId) == 0) {
                 return;
             }
         }
@@ -929,6 +1001,7 @@ void AprsEngine::handleIncomingMessage(const DecodedPacket& pkt, const char* add
         AprsMessageEntry& m = _messages[0];
         m.active = true;
         m.incoming = true;
+        m.sentViaIs = pkt.fromAprsIs;
         strlcpy(m.peerCall, pkt.srcCall, sizeof(m.peerCall));
         strlcpy(m.text, cleanText, sizeof(m.text));
         strlcpy(m.msgId, msgId, sizeof(m.msgId));
@@ -937,6 +1010,8 @@ void AprsEngine::handleIncomingMessage(const DecodedPacket& pkt, const char* add
         m.timestampMs = millis();
         if (_msgCount < MAX_MESSAGES_LIST) _msgCount++;
         _unreadMsgCount++;
+        _uiRevision++;
+        Serial.printf("[APRS MSG RX] De %s: '%s' (id=%s)\n", pkt.srcCall, cleanText, msgId);
     }
 }
 

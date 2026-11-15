@@ -69,6 +69,7 @@ private:
     uint32_t _lastDrawnRxCount = 0xFFFFFFFF;
     uint32_t _lastDrawnTxCount = 0xFFFFFFFF;
     uint32_t _lastDrawnIgCount = 0xFFFFFFFF;
+    uint32_t _lastDrawnUiRev   = 0xFFFFFFFF;
 
     void drawTopBar();
     void drawBottomTabs();

@@ -59,6 +59,7 @@ enum MsgState : uint8_t {
 struct AprsMessageEntry {
     bool active;
     bool incoming;          // true = recibido, false = enviado por nosotros
+    bool sentViaIs;         // true = inyectado en servidor APRS-IS por IGate
     char peerCall[12];      // Indicativo remoto (ej. "LU1XYZ-9")
     char text[68];          // Texto del mensaje
     char msgId[8];          // ID de secuencia (ej. "12")
@@ -119,6 +120,7 @@ public:
     const AprsMessageEntry& getMessage(int index) const; // 0 = más reciente
     uint16_t getUnreadMessageCount() const { return _unreadMsgCount; }
     void clearUnreadMessages() { _unreadMsgCount = 0; }
+    uint32_t getUiRevision() const { return _uiRevision; }
 
     uint32_t getSecondsUntilNextBeacon() const;
 
@@ -140,6 +142,7 @@ private:
     int _msgCount = 0;
     uint16_t _unreadMsgCount = 0;
     uint16_t _nextMsgSeq = 1;
+    uint32_t _uiRevision = 0;
 
     uint32_t _lastBeaconMs = 0;
 

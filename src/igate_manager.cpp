@@ -203,11 +203,12 @@ void IgateManager::update() {
                 }
 
                 uint16_t pass = getEffectivePasscode();
-                char loginLine[160];
+                char loginLine[180];
                 snprintf(loginLine, sizeof(loginLine),
-                         "user %s pass %u vers ESP32-CYD-APRS %s filter r/%.2f/%.2f/100\r\n",
+                         "user %s pass %u vers ESP32-CYD-APRS %s filter r/%.2f/%.2f/100 g/%s* b/%s*\r\n",
                          myFullCall, pass, FIRMWARE_VERSION,
-                         Aprs.getCurrentLat(), Aprs.getCurrentLon());
+                         Aprs.getCurrentLat(), Aprs.getCurrentLon(),
+                         cfg.callsign, cfg.callsign);
 
                 _client.print(loginLine);
                 Serial.printf("[IGATE] Login enviado: %s", loginLine);
@@ -270,7 +271,8 @@ void IgateManager::processServerLine(const char* line) {
         return;
     }
 
-    // Trama TNC2 recibida desde APRS-IS (ej: mensajes dirigidos a nuestra estación o estaciones locales)
+    // Trama TNC2 recibida desde APRS-IS (ej: mensajes/ACKs dirigidos a nuestra estación o estaciones locales)
+    Serial.printf("[IGATE IS->RX] %s\n", line);
     if (Aprs.handleAprsIsIncomingLine(line)) {
         _isToRfCount++;
     }
