@@ -101,9 +101,9 @@ Puedes cambiar entre ambos modelos en cualquier momento desde **`CONF` -> `PAG 2
 | :--- | :---: | :--- |
 | **Audio RX (desde SPK Radio)** | **`IO35`** | Conector `P3` (`ADC1_CH7` - Solo entrada analógica). |
 | **Control PTT Radio** | **`IO22`** | Conector `CN1` / `P3` (Salida `3.3V` en TX, `0V` en RX). |
-| **Audio TX (hacia MIC Radio)** | **`IO4`** *(o `IO17`)* | Conector `P3` (DAC Sigma-Delta `312.5 kHz`). Al elegir `Placa: ST7789` se asigna **`IO4`** automáticamente, dejando libres `IO16`/`IO17` para **Sensores I2C/DHT** o **GPS**. |
+| **Audio TX (hacia MIC Radio)** | **`IO21`** | Conector `CN1` / `P3` junto a `IO22` (DAC Sigma-Delta `312.5 kHz`). Al elegir `Placa: ST7789` se asigna **`IO21`** automáticamente, dejando `IO27` para el Backlight TFT y `IO16`/`IO17` libres en `P3` para **Sensores I2C/DHT** o **GPS**. |
 | **Sensores I2C / DHT (o GPS)** | **`IO16` / `IO17`** | Conector `P3`: `SDA = IO16`, `SCL = IO17` (o `DATA = IO17` para `DHT22/11`), o bien `UART2` si se usa GPS externo en modo `Pos: GPS`. |
-| **Backlight Pantalla TFT** | **`IO21` / `IO27`** | Iluminación de pantalla TFT con brillo regulable (`100% / 65% / 35% / 15%`) en `CONF 5/5`. |
+| **Backlight Pantalla TFT** | **`IO27`** | Iluminación de pantalla TFT con brillo regulable (`100% / 65% / 35% / 15%`) en `CONF 6/6`. |
 | **MicroSD (`CS / SCK / MISO / MOSI`)** | **`5 / 18 / 19 / 23`** | Zócalo MicroSD integrado (Bus VSPI). |
 | **Tierra Común** | **`GND`** | Conector `P3` / `CN1`. |
 
@@ -115,9 +115,21 @@ En el diseño electrónico de fábrica de la placa CYD, el **LED RGB trasero** (
 
 | Pin del ESP32 | Color en el LED RGB (Activo en `LOW`) | Función en el Conector `P3` (`Placa: ST7789`) | Comportamiento en el Firmware |
 | :---: | :---: | :--- | :--- |
-| **`GPIO 4`** | **Rojo** | **Audio TX** (hacia MIC del radio) | En recepción permanece en `HIGH` (`3.3V`, LED Rojo apagado). Solo parpadea en rojo mientras transmite un paquete AFSK por radio. |
+| **`GPIO 4`** | **Rojo** | **LED Indicador de TX** | Permanece en `HIGH` (`3.3V`, apagado) en recepción y se enciende en **Rojo** únicamente mientras el equipo está transmitiendo por radio (`PTT` activo). |
 | **`GPIO 16`** | **Verde** | **Sensor `SDA`** *(o GPS TX)* | En modo I2C mantiene pull-up a `3.3V` (LED Verde apagado; solo destella brevemente al leer el sensor cada 5 s). |
-| **`GPIO 17`** | **Azul** | **Sensor `SCL` / `DHT`** *(o GPS RX)* | Si no usas sensores ni GPS en `IO17`, funciona como indicador de **IGate Conectado** con brillo regulable (`TENUE / MEDIO / OFF`) desde `CONF 5/5`. Si activas un sensor en `P3`, `IO17` pasa automáticamente a ser el reloj `SCL` (con pull-up a `3.3V`). |
+| **`GPIO 17`** | **Azul** | **Sensor `SCL` / `DHT`** *(o GPS RX)* | Si no usas sensores ni GPS en `IO17`, funciona como indicador de **IGate Conectado** con brillo regulable (`TENUE / MEDIO / OFF`) desde `CONF 6/6`. Si activas un sensor en `P3`, `IO17` pasa automáticamente a ser el reloj `SCL` (con pull-up a `3.3V`). |
+
+---
+
+### ¿Qué son los `ms` de Delay (`Dly: xxx ms` / `TX Delay`) en `CONF 2/6`?
+
+Sí: el parámetro **`Dly: xxx ms` (`TX Delay`)** define el tiempo de **preámbulo desde que se activa el PTT (`GPIO 22 = HIGH`) hasta que comienza a enviarse la información real del paquete AX.25**:
+1. Al iniciar una transmisión, el ESP32 levanta inmediatamente el **PTT (`IO22`)** para poner el handy en transmisión.
+2. Durante los **`ms` configurados en `Dly`** (por ejemplo `450 ms` en el preset **`BAOFENG`** o `250 ms` en **`YAESU`**), el módem envía por **`IO21`** una ráfaga continua de **banderas de sincronización HDLC (`0x7E`, tonos alternados `1200/2200 Hz`)**.
+3. Esto permite que:
+   * Tu transmisor estabilice la portadora RF.
+   * El receptor del otro corresponsal (o del IGate/Digipeater) alcance a abrir su *squelch*, despertar del ahorro de batería (*Battery Save* de los Baofeng) y sincronizar su reloj digital (DPLL) antes de que llegue la primera letra de tu indicativo.
+4. Al terminar el paquete y su `CRC-16`, transmite `~60 ms` adicionales de cola (`TX Tail`) y suelta el PTT.
 
 ---
 

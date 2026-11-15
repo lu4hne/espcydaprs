@@ -42,11 +42,11 @@ void AprsEngine::loadConfig() {
 
     _cfg.boardModel = prefs.getUChar("brdMod", defaultBoard);
     _cfg.displayInvert = prefs.getBool("dispInv", false);
-    _cfg.txAudioPin = prefs.getUChar("txPin", (_cfg.boardModel == BOARD_MODEL_ST7789) ? 4 : 27);
-    // En la placa ST7789 (1 USB), GPIO 27 es el Backlight de la pantalla TFT y no está en los conectores P3;
-    // si quedó guardado 27 en NVS, migrar automáticamente a GPIO 4 (conector P3).
-    if (_cfg.boardModel == BOARD_MODEL_ST7789 && _cfg.txAudioPin == 27) {
-        _cfg.txAudioPin = 4;
+    _cfg.txAudioPin = prefs.getUChar("txPin", (_cfg.boardModel == BOARD_MODEL_ST7789) ? 21 : 27);
+    // En la placa ST7789 (1 USB), GPIO 27 es el Backlight de la pantalla TFT y GPIO 21 es la salida de Audio TX
+    // en el conector blanco junto a IO22 (PTT); si quedó 27 o 4 en NVS, usar GPIO 21 por defecto.
+    if (_cfg.boardModel == BOARD_MODEL_ST7789 && (_cfg.txAudioPin == 27 || _cfg.txAudioPin == 4)) {
+        _cfg.txAudioPin = 21;
     }
 
     _cfg.stationMode = prefs.getUChar("stMode", STATION_MODE_TRACKER);
@@ -103,7 +103,7 @@ void AprsEngine::loadConfig() {
 
 void AprsEngine::saveConfig() {
     if (_cfg.boardModel == BOARD_MODEL_ST7789 && _cfg.txAudioPin == 27) {
-        _cfg.txAudioPin = 4;
+        _cfg.txAudioPin = 21;
     }
     Preferences prefs;
     prefs.begin("aprs_cfg", false);
@@ -160,13 +160,12 @@ void AprsEngine::saveConfig() {
 void AprsEngine::applyBoardModel(BoardModel model) {
     _cfg.boardModel = model;
     if (model == BOARD_MODEL_ST7789) {
-        // Modelo ST7789 (1 USB): Conectores P3 tienen IO35, IO22, IO21(BL), IO4, IO16, IO17
-        // Usamos IO4 para Audio TX Sigma-Delta (dejando IO17/IO16 libres para GPS) + IO26 DAC2
-        _cfg.txAudioPin = 4;
+        // Modelo ST7789 (1 USB): Backlight en IO27; en el conector blanco CN1 están IO21 (Audio TX) e IO22 (PTT),
+        // dejando IO16/IO17 libres en P3 para Sensores I2C o GPS, e IO4 para el LED Rojo de TX.
+        _cfg.txAudioPin = 21;
         _cfg.displayInvert = false;
     } else {
-        // Modelo ILI9341: Conectores tienen IO35, IO22, IO21, IO27
-        // Usamos IO27 para Audio TX Sigma-Delta (con BL en IO21) + IO26 DAC2
+        // Modelo ILI9341: Conectores tienen IO35, IO22, IO21 (BL), IO27 (Audio TX)
         _cfg.txAudioPin = 27;
         _cfg.displayInvert = false;
     }
