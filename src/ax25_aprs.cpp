@@ -1,5 +1,6 @@
 #include "ax25_aprs.h"
 #include "igate_manager.h"
+#include "sensor_manager.h"
 #include <Preferences.h>
 #include <TinyGPS++.h>
 #include <math.h>
@@ -42,6 +43,11 @@ void AprsEngine::loadConfig() {
     _cfg.boardModel = prefs.getUChar("brdMod", defaultBoard);
     _cfg.displayInvert = prefs.getBool("dispInv", false);
     _cfg.txAudioPin = prefs.getUChar("txPin", (_cfg.boardModel == BOARD_MODEL_ST7789) ? 4 : 27);
+    // En la placa ST7789 (1 USB), GPIO 27 es el Backlight de la pantalla TFT y no está en los conectores P3;
+    // si quedó guardado 27 en NVS, migrar automáticamente a GPIO 4 (conector P3).
+    if (_cfg.boardModel == BOARD_MODEL_ST7789 && _cfg.txAudioPin == 27) {
+        _cfg.txAudioPin = 4;
+    }
 
     _cfg.stationMode = prefs.getUChar("stMode", STATION_MODE_TRACKER);
     strlcpy(_cfg.callsign, prefs.getString("call", "LU4HNE").c_str(), sizeof(_cfg.callsign));
@@ -80,16 +86,25 @@ void AprsEngine::loadConfig() {
     _cfg.igateBeaconMode = prefs.getUChar("igBcn", IGATE_BCN_BOTH);
     _cfg.igateIsToRfMsg = prefs.getBool("igMsgRf", true);
 
-    // Parámetros OTA y Brillo
+    // Parámetros OTA, Brillo y Sensores
     strlcpy(_cfg.otaServerUrl, prefs.getString("otaUrl", "").c_str(), sizeof(_cfg.otaServerUrl));
     _cfg.ledBrightness = prefs.getUChar("ledBrt", 1); // 1 = Muy tenue (~1.2%), 0 = Apagado, 2 = Medio
     _cfg.tftBrightness = prefs.getUChar("tftBrt", 100);
     if (_cfg.tftBrightness < 15 || _cfg.tftBrightness > 100) _cfg.tftBrightness = 100;
 
+    _cfg.sensorModel      = prefs.getUChar("snsMod", SENSOR_AUTO_I2C);
+    _cfg.sensorPinProfile = prefs.getUChar("snsPin", SENSOR_PINS_16_17);
+    _cfg.sensorBeaconMode = prefs.getUChar("snsBcn", SENSOR_BCN_COMMENT);
+    _cfg.tempOffsetC      = prefs.getFloat("snsTOff", 0.0f);
+    _cfg.humOffsetPct     = prefs.getFloat("snsHOff", 0.0f);
+
     prefs.end();
 }
 
 void AprsEngine::saveConfig() {
+    if (_cfg.boardModel == BOARD_MODEL_ST7789 && _cfg.txAudioPin == 27) {
+        _cfg.txAudioPin = 4;
+    }
     Preferences prefs;
     prefs.begin("aprs_cfg", false);
 
@@ -132,6 +147,11 @@ void AprsEngine::saveConfig() {
     prefs.putString("otaUrl", _cfg.otaServerUrl);
     prefs.putUChar("ledBrt", _cfg.ledBrightness);
     prefs.putUChar("tftBrt", _cfg.tftBrightness);
+    prefs.putUChar("snsMod", _cfg.sensorModel);
+    prefs.putUChar("snsPin", _cfg.sensorPinProfile);
+    prefs.putUChar("snsBcn", _cfg.sensorBeaconMode);
+    prefs.putFloat("snsTOff", _cfg.tempOffsetC);
+    prefs.putFloat("snsHOff", _cfg.humOffsetPct);
 
     prefs.end();
     Modem.configure(_cfg.txDelayMs, _cfg.txTailMs, _cfg.txVolume, _cfg.txAudioPin);
@@ -413,14 +433,37 @@ bool AprsEngine::sendPositionBeacon(bool loopbackTest) {
     if (altFeet < 0) altFeet = 0;
 
     char info[160];
-    snprintf(info, sizeof(info),
-             "=%02d%05.2f%c%c%03d%05.2f%c%c/A=%06ld %s",
-             latDeg, latMin, ns,
-             _cfg.symbolTable,
-             lonDeg, lonMin, ew,
-             _cfg.symbolCode,
-             (long)altFeet,
-             _cfg.comment);
+    char wxBuf[48];
+    // Si el sensor NO está conectado (o está configurado en NO INFORMAR), se envía la baliza normal sin datos de clima
+    if (Sensors.isConnected() && _cfg.sensorBeaconMode == SENSOR_BCN_WX_PACK &&
+        Sensors.formatAprsWxPayload(wxBuf, sizeof(wxBuf))) {
+        snprintf(info, sizeof(info),
+                 "=%02d%05.2f%c/%03d%05.2f%c_%s %s",
+                 latDeg, latMin, ns,
+                 lonDeg, lonMin, ew,
+                 wxBuf,
+                 _cfg.comment);
+    } else if (Sensors.isConnected() && _cfg.sensorBeaconMode == SENSOR_BCN_COMMENT &&
+               Sensors.formatCommentTelemetry(wxBuf, sizeof(wxBuf))) {
+        snprintf(info, sizeof(info),
+                 "=%02d%05.2f%c%c%03d%05.2f%c%c/A=%06ld [%s] %s",
+                 latDeg, latMin, ns,
+                 _cfg.symbolTable,
+                 lonDeg, lonMin, ew,
+                 _cfg.symbolCode,
+                 (long)altFeet,
+                 wxBuf,
+                 _cfg.comment);
+    } else {
+        snprintf(info, sizeof(info),
+                 "=%02d%05.2f%c%c%03d%05.2f%c%c/A=%06ld %s",
+                 latDeg, latMin, ns,
+                 _cfg.symbolTable,
+                 lonDeg, lonMin, ew,
+                 _cfg.symbolCode,
+                 (long)altFeet,
+                 _cfg.comment);
+    }
 
     _lastBeaconMs = millis();
 

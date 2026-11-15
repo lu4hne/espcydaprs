@@ -11,7 +11,8 @@ enum UiTab : uint8_t {
     TAB_MONITOR   = 1,
     TAB_MESSAGES  = 2,
     TAB_STATIONS  = 3,
-    TAB_CONFIG    = 4
+    TAB_SENSORS   = 4,
+    TAB_CONFIG    = 5
 };
 
 enum KeyboardTarget : uint8_t {
@@ -79,6 +80,7 @@ private:
     void drawMonitor(bool fullRedraw);
     void drawMessages(bool fullRedraw);
     void drawStations(bool fullRedraw);
+    void drawSensors(bool fullRedraw);
     void drawConfig(bool fullRedraw);
 
     // Teclado QWERTY en pantalla
@@ -93,6 +95,7 @@ private:
     void handleMonitorTouch(uint16_t tx, uint16_t ty);
     void handleMessagesTouch(uint16_t tx, uint16_t ty);
     void handleStationsTouch(uint16_t tx, uint16_t ty);
+    void handleSensorsTouch(uint16_t tx, uint16_t ty);
     void handleConfigTouch(uint16_t tx, uint16_t ty);
 
     void showToast(const char* msg, uint16_t bgColor);

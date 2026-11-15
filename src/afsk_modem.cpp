@@ -178,8 +178,9 @@ void AfskModem::setPtt(bool active) {
         } else {
             sigmaDeltaDetachPin(_txAudioPin);
             pinMode(_txAudioPin, OUTPUT);
-            // Si es GPIO 4 (LED Rojo activo en LOW), dejarlo en HIGH al terminar TX
-            digitalWrite(_txAudioPin, (_txAudioPin == CYD_LED_R) ? HIGH : LOW);
+            // Dejar en HIGH (3.3V DC constantes bloqueados por el capacitor de 1uF):
+            // mantiene apagado el LED Rojo (IO4) y nunca apaga el Backlight si el usuario eligió IO21/IO27.
+            digitalWrite(_txAudioPin, HIGH);
         }
     }
 }

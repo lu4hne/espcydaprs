@@ -6,6 +6,7 @@
 #include "ax25_aprs.h"
 #include "igate_manager.h"
 #include "update_manager.h"
+#include "sensor_manager.h"
 #include "ui_manager.h"
 
 static uint32_t s_lastSerialLogCount = 0;
@@ -67,7 +68,8 @@ void setup() {
     // 4. Iniciar Módem DSP AFSK 1200 bps con el pin TX configurado
     Modem.begin();
 
-    // 5. Iniciar Cliente WiFi / IGate APRS-IS y Gestor OTA
+    // 5. Iniciar Sensores Meteorológicos Locales, Cliente WiFi / IGate APRS-IS y Gestor OTA
+    Sensors.begin();
     Igate.begin();
     Updater.begin();
     Ui.requestRedraw();
@@ -75,7 +77,8 @@ void setup() {
 }
 
 void loop() {
-    // 1. Actualizar decodificación de paquetes, GPS, baliza periódica y reintentos ACK
+    // 1. Actualizar decodificación de paquetes, sensores locales, GPS, baliza periódica y reintentos ACK
+    Sensors.update();
     Aprs.update();
 
     // 2. Actualizar conexión WiFi y socket TCP APRS-IS (en modo Estación Fija + IGate)

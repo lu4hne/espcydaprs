@@ -2,7 +2,7 @@
 
 #include <Arduino.h>
 
-#define FIRMWARE_VERSION    "1.4.0"
+#define FIRMWARE_VERSION    "1.5.0"
 
 // ============================================================================
 // PLACA: ESP32 CYD (Soporte Dual: Modelo ST7789 1-USB y Modelo ILI9341)
@@ -103,6 +103,27 @@ enum PositionMode : uint8_t {
     POS_MODE_GPS   = 1  // Coordenadas leídas desde módulo GPS UART NMEA
 };
 
+enum SensorModel : uint8_t {
+    SENSOR_AUTO_I2C   = 0, // Auto-detecta BMP280/BME280 (0x76/0x77) o AHT20 (0x38)
+    SENSOR_BMP_BME280 = 1, // BMP280 (Temp+Presión) o BME280 (Temp+Hum+Presión) por I2C
+    SENSOR_AHT20      = 2, // AHT10 / AHT20 (Temp+Hum) por I2C
+    SENSOR_DHT22      = 3, // DHT22 / AM2302 (Temp+Hum) digital 1-Wire
+    SENSOR_DHT11      = 4, // DHT11 (Temp+Hum) digital 1-Wire
+    SENSOR_DISABLED   = 5  // Sensores desactivados
+};
+
+enum SensorPinProfile : uint8_t {
+    SENSOR_PINS_16_17 = 0, // Conector P3 (ST7789): SDA=IO16, SCL=IO17 (o DATA=IO17 en DHT)
+    SENSOR_PINS_21_22 = 1, // Conector P3/CN1: SDA=IO21, SCL=IO22 (o DATA=IO21 en DHT)
+    SENSOR_PINS_27_22 = 2  // Conector CN1 (ILI9341): SDA=IO27, SCL=IO22 (o DATA=IO27 en DHT)
+};
+
+enum SensorBeaconMode : uint8_t {
+    SENSOR_BCN_COMMENT = 0, // Agregar "24.5C 48% 1013hPa" al comentario (solo si el sensor está conectado)
+    SENSOR_BCN_WX_PACK = 1, // Trama WX oficial APRS "/_...t...h...b..." (solo si el sensor está conectado)
+    SENSOR_BCN_OFF     = 2  // No incluir lecturas en la baliza APRS
+};
+
 struct AprsConfig {
     uint8_t boardModel;     // BOARD_MODEL_ILI9341 o BOARD_MODEL_ST7789
     bool displayInvert;     // Inversión de color del panel (útil en variantes ST7789 / IPS)
@@ -146,6 +167,13 @@ struct AprsConfig {
     char otaServerUrl[96];  // URL base o JSON para actualización OTA por HTTP/HTTPS
     uint8_t ledBrightness;  // Brillo LED RGB Azul de estado: 0 = Apagado, 1 = Muy tenue (2%), 2 = Medio (10%)
     uint8_t tftBrightness;  // Brillo de pantalla TFT (20 a 100%)
+
+    // --- Sensores Meteorológicos Locales (BMP280 / BME280 / AHT20 / DHT22 / DHT11) ---
+    uint8_t sensorModel;      // SensorModel (por defecto SENSOR_AUTO_I2C)
+    uint8_t sensorPinProfile; // SensorPinProfile (por defecto SENSOR_PINS_16_17)
+    uint8_t sensorBeaconMode; // SensorBeaconMode (por defecto SENSOR_BCN_COMMENT)
+    float   tempOffsetC;      // Calibración de temperatura en °C
+    float   humOffsetPct;     // Calibración de humedad en %
 };
 
 // Límites de almacenamiento en RAM para la interfaz gráfica

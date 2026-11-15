@@ -1,6 +1,7 @@
 #include "ui_manager.h"
 #include "igate_manager.h"
 #include "update_manager.h"
+#include "sensor_manager.h"
 
 UiManager Ui;
 
@@ -31,24 +32,26 @@ void UiManager::begin() {
 void UiManager::applyDisplayHardware() {
     AprsConfig& cfg = Aprs.config();
 
-    // Configurar brillo por PWM (LEDC canal 6) para el pin de Backlight que NO esté asignado a Audio TX
-    // En modelo ST7789 (1 USB) y 2432S028R el Backlight es GPIO 21; en 2432S024C suele ser GPIO 27.
+    // Configurar brillo por PWM (LEDC canal 0, Timer 0) para el pin de Backlight que NO esté asignado a Audio TX
+    // En modelo ST7789 (1 USB) el Backlight usa GPIO 27/21; en 2432S024C usa GPIO 27/21.
     if (cfg.tftBrightness < 15 || cfg.tftBrightness > 100) cfg.tftBrightness = 100;
     uint8_t blDuty = (uint8_t)(((uint32_t)cfg.tftBrightness * 255UL) / 100UL);
-    ledcSetup(6, 5000, 8);
+    ledcSetup(0, 5000, 8);
     if (cfg.txAudioPin != CYD_BL_PIN_21) {
-        ledcAttachPin(CYD_BL_PIN_21, 6);
+        pinMode(CYD_BL_PIN_21, OUTPUT);
+        ledcAttachPin(CYD_BL_PIN_21, 0);
     } else {
         ledcDetachPin(CYD_BL_PIN_21);
     }
     if (cfg.txAudioPin != CYD_BL_PIN_27) {
-        ledcAttachPin(CYD_BL_PIN_27, 6);
+        pinMode(CYD_BL_PIN_27, OUTPUT);
+        ledcAttachPin(CYD_BL_PIN_27, 0);
     } else {
         ledcDetachPin(CYD_BL_PIN_27);
     }
-    ledcWrite(6, blDuty);
+    ledcWrite(0, blDuty);
 
-    // Configurar pines GPIO 16 / GPIO 17:
+    // Configurar pines GPIO 16 / GPIO 17 (LEDC canal 2, Timer 1 independiente):
     // En la placa CYD (ST7789 / ILI9341), el fabricante cableó el LED RGB trasero (R=IO4, G=IO16, B=IO17)
     // en paralelo con los pines del conector blanco P3 (IO4, IO16, IO17).
     // - Si Posición = GPS (Modo Tracker con GPS externo), IO17 (RX2) e IO16 (TX2) se dedican al UART2 del GPS.
@@ -60,13 +63,13 @@ void UiManager::applyDisplayHardware() {
         Serial2.end();
         pinMode(CYD_LED_G, OUTPUT);
         digitalWrite(CYD_LED_G, HIGH); // Verde apagado en reposo
-        ledcSetup(7, 5000, 8);
-        ledcAttachPin(CYD_LED_B, 7);
+        ledcSetup(2, 5000, 8);
+        ledcAttachPin(CYD_LED_B, 2);
         uint8_t blueDuty = 255; // 255 = Apagado (activo en LOW)
         if (Igate.isAprsIsVerified() && cfg.ledBrightness > 0) {
             blueDuty = (cfg.ledBrightness == 1) ? 252 : 232; // 252 = ~1.2% muy tenue, 232 = ~9% medio
         }
-        ledcWrite(7, blueDuty);
+        ledcWrite(2, blueDuty);
     }
 
     if (cfg.boardModel == BOARD_MODEL_ST7789) {
@@ -171,15 +174,17 @@ void UiManager::update() {
             drawDashboard(false);
         }
 
-        // Actualizar LED RGB de estado (Azul tenue = IGate Online, Verde = RX DCD) si no se usa GPS en 16/17
+        // Actualizar LED RGB de estado (Azul tenue = IGate Online, Verde = RX DCD)
+        // solo si IO16/17 no están en uso por GPS ni por un sensor I2C/DHT conectado
         AprsConfig& cfg = Aprs.config();
-        if (cfg.posMode == POS_MODE_FIXED && cfg.txAudioPin != CYD_LED_B) {
+        bool pins1617UsedBySensor = Sensors.isConnected() && (cfg.sensorPinProfile == SENSOR_PINS_16_17);
+        if (cfg.posMode == POS_MODE_FIXED && cfg.txAudioPin != CYD_LED_B && !pins1617UsedBySensor) {
             digitalWrite(CYD_LED_G, Modem.isCarrierDetected() ? LOW : HIGH);
             uint8_t blueDuty = 255; // Apagado (activo en LOW)
             if (Igate.isAprsIsVerified() && cfg.ledBrightness > 0) {
                 blueDuty = (cfg.ledBrightness == 1) ? 252 : 232;
             }
-            ledcWrite(7, blueDuty);
+            ledcWrite(2, blueDuty);
         }
     }
 }
@@ -251,23 +256,25 @@ void UiManager::drawTopBar() {
 }
 
 void UiManager::drawBottomTabs() {
-    const char* labels[5] = { "PANEL", "MONIT", "MSJS", "ESTAC", "CONF" };
-    int tabW = 320 / 5; // 64px por pestaña
+    const char* labels[6] = { "PANEL", "MONIT", "MSJS", "ESTAC", "SENS", "CONF" };
+    int tabW = 320 / 6; // 53px por pestaña
     int y = 212;
 
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 6; i++) {
         bool sel = ((int)_currentTab == i);
         uint16_t bg = sel ? COL_ACCENT : COL_HEADER;
         uint16_t fg = sel ? COL_BG : COL_WHITE;
 
-        _tft.fillRect(i * tabW, y, tabW - 1, 28, bg);
-        _tft.drawFastHLine(i * tabW, y, tabW - 1, sel ? COL_WHITE : COL_BORDER);
+        int x0 = i * tabW;
+        int w  = (i == 5) ? (320 - x0) : (tabW - 1);
+        _tft.fillRect(x0, y, w, 28, bg);
+        _tft.drawFastHLine(x0, y, w, sel ? COL_WHITE : COL_BORDER);
         _tft.setTextColor(fg, bg);
-        _tft.drawCentreString(labels[i], i * tabW + (tabW / 2), y + 6, 2);
+        _tft.drawCentreString(labels[i], x0 + (w / 2), y + 6, 2);
 
         // Insignia de mensajes no leídos en MSJS
         if (i == TAB_MESSAGES && Aprs.getUnreadMessageCount() > 0) {
-            _tft.fillCircle(i * tabW + tabW - 10, y + 8, 5, COL_RED);
+            _tft.fillCircle(x0 + w - 8, y + 7, 4, COL_RED);
         }
     }
 }
@@ -278,6 +285,7 @@ void UiManager::drawCurrentTab(bool fullRedraw) {
         case TAB_MONITOR:   drawMonitor(fullRedraw);   break;
         case TAB_MESSAGES:  drawMessages(fullRedraw);  break;
         case TAB_STATIONS:  drawStations(fullRedraw);  break;
+        case TAB_SENSORS:   drawSensors(fullRedraw);   break;
         case TAB_CONFIG:    drawConfig(fullRedraw);    break;
     }
 }
@@ -595,6 +603,90 @@ void UiManager::drawStations(bool fullRedraw) {
         _tft.setTextColor(COL_MUTED, COL_BG);
         _tft.drawCentreString("Ninguna estacion registrada aun.", 160, 105, 2);
     }
+}
+
+void UiManager::drawSensors(bool fullRedraw) {
+    AprsConfig& cfg = Aprs.config();
+    const SensorReading& r = Sensors.reading();
+
+    // Tarjeta 1 (y=26..96): Estado del sensor y lecturas meteorológicas en vivo
+    _tft.fillRoundRect(6, 26, 308, 70, 4, COL_CARD);
+    _tft.drawRoundRect(6, 26, 308, 70, 4, r.connected ? COL_GREEN : COL_BORDER);
+
+    _tft.setTextColor(r.connected ? COL_GREEN : COL_ORANGE, COL_CARD);
+    _tft.drawString(r.statusText, 12, 30, 2);
+
+    if (r.connected) {
+        char valLine[48];
+        if (r.hasHumidity && r.hasPressure) {
+            snprintf(valLine, sizeof(valLine), "Temp: %.1f C | Hum: %.0f%% | %.1f hPa",
+                     r.temperatureC, r.humidityPct, r.pressureHpa);
+        } else if (r.hasPressure) {
+            snprintf(valLine, sizeof(valLine), "Temp: %.1f C  |  Presion: %.1f hPa",
+                     r.temperatureC, r.pressureHpa);
+        } else {
+            snprintf(valLine, sizeof(valLine), "Temp: %.1f C  |  Humedad: %.0f %%",
+                     r.temperatureC, r.humidityPct);
+        }
+        _tft.setTextColor(COL_YELLOW, COL_CARD);
+        _tft.drawString(valLine, 12, 52, 2);
+
+        char prevBuf[48];
+        char bcnPrev[56];
+        if (cfg.sensorBeaconMode == SENSOR_BCN_OFF) {
+            strlcpy(bcnPrev, "Baliza APRS: Configurado para NO enviar clima", sizeof(bcnPrev));
+            _tft.setTextColor(COL_MUTED, COL_CARD);
+        } else if (cfg.sensorBeaconMode == SENSOR_BCN_WX_PACK && Sensors.formatAprsWxPayload(prevBuf, sizeof(prevBuf))) {
+            snprintf(bcnPrev, sizeof(bcnPrev), "TX APRS WX: /_%s", prevBuf);
+            _tft.setTextColor(COL_ACCENT, COL_CARD);
+        } else if (Sensors.formatCommentTelemetry(prevBuf, sizeof(prevBuf))) {
+            snprintf(bcnPrev, sizeof(bcnPrev), "TX en Baliza: [%s]", prevBuf);
+            _tft.setTextColor(COL_WHITE, COL_CARD);
+        }
+        _tft.drawString(bcnPrev, 12, 74, 2);
+    } else {
+        _tft.setTextColor(COL_WHITE, COL_CARD);
+        _tft.drawString("Sin sensor fisico conectado.", 12, 52, 2);
+        _tft.setTextColor(COL_MUTED, COL_CARD);
+        _tft.drawString("Balizas APRS salen normales (sin datos WX).", 12, 74, 2);
+    }
+
+    // Fila 2 (y=101..133): Modelo de Sensor y Pines I2C / 1-Wire
+    _tft.fillRoundRect(6, 101, 148, 32, 3, COL_CARD);
+    _tft.drawRoundRect(6, 101, 148, 32, 3, COL_ACCENT);
+    _tft.setTextColor(COL_YELLOW, COL_CARD);
+    _tft.drawCentreString(Sensors.getModelConfigText(), 80, 109, 2);
+
+    _tft.fillRoundRect(160, 101, 154, 32, 3, COL_CARD);
+    _tft.drawRoundRect(160, 101, 154, 32, 3, COL_ACCENT);
+    _tft.setTextColor(COL_ACCENT, COL_CARD);
+    _tft.drawCentreString(Sensors.getPinProfileText(), 237, 109, 2);
+
+    // Fila 3 (y=138..170): Modo de envío en Baliza + Calibración Offset Temp (- / +)
+    _tft.fillRoundRect(6, 138, 174, 32, 3, COL_CARD);
+    _tft.drawRoundRect(6, 138, 174, 32, 3, COL_BORDER);
+    _tft.setTextColor(cfg.sensorBeaconMode == SENSOR_BCN_OFF ? COL_MUTED : COL_GREEN, COL_CARD);
+    _tft.drawCentreString(Sensors.getBeaconModeText(), 93, 146, 2);
+
+    char calStr[24];
+    snprintf(calStr, sizeof(calStr), "Ofs:%+.1fC (-/+)", cfg.tempOffsetC);
+    _tft.fillRoundRect(186, 138, 128, 32, 3, COL_CARD);
+    _tft.drawRoundRect(186, 138, 128, 32, 3, COL_BORDER);
+    _tft.setTextColor(COL_WHITE, COL_CARD);
+    _tft.drawCentreString(calStr, 250, 146, 2);
+
+    // Fila 4 (y=175..207): [DETECTAR / LEER] [TX BALIZA] [GUARDAR]
+    _tft.fillRoundRect(6, 175, 118, 32, 3, COL_ACCENT);
+    _tft.setTextColor(COL_BG, COL_ACCENT);
+    _tft.drawCentreString("DETECTAR", 65, 183, 2);
+
+    _tft.fillRoundRect(130, 175, 106, 32, 3, COL_ORANGE);
+    _tft.setTextColor(COL_BG, COL_ORANGE);
+    _tft.drawCentreString("TX BALIZA", 183, 183, 2);
+
+    _tft.fillRoundRect(242, 175, 72, 32, 3, COL_GREEN);
+    _tft.setTextColor(COL_BG, COL_GREEN);
+    _tft.drawCentreString("GUARDAR", 278, 183, 2);
 }
 
 void UiManager::drawConfig(bool fullRedraw) {
@@ -1146,9 +1238,13 @@ void UiManager::handleTouch(uint16_t tx, uint16_t ty) {
 
     // Barra de pestañas inferior (y >= 210)
     if (ty >= 210) {
-        int tabIdx = tx / (320 / 5);
-        if (tabIdx >= 0 && tabIdx <= 4) {
+        int tabIdx = tx / (320 / 6);
+        if (tabIdx > 5) tabIdx = 5;
+        if (tabIdx >= 0 && tabIdx <= 5) {
             _currentTab = (UiTab)tabIdx;
+            if (_currentTab == TAB_MESSAGES) {
+                Aprs.clearUnreadMessages();
+            }
             _needsFullRedraw = true;
         }
         return;
@@ -1159,6 +1255,7 @@ void UiManager::handleTouch(uint16_t tx, uint16_t ty) {
         case TAB_MONITOR:   handleMonitorTouch(tx, ty);   break;
         case TAB_MESSAGES:  handleMessagesTouch(tx, ty);  break;
         case TAB_STATIONS:  handleStationsTouch(tx, ty);  break;
+        case TAB_SENSORS:   handleSensorsTouch(tx, ty);   break;
         case TAB_CONFIG:    handleConfigTouch(tx, ty);    break;
     }
 }
@@ -1264,6 +1361,58 @@ void UiManager::handleStationsTouch(uint16_t tx, uint16_t ty) {
             }
             drawn++;
         }
+    }
+}
+
+void UiManager::handleSensorsTouch(uint16_t tx, uint16_t ty) {
+    AprsConfig& cfg = Aprs.config();
+
+    // Fila 2 (y=101..133): Modelo de Sensor y Pines
+    if (ty >= 101 && ty <= 133) {
+        if (tx < 156) {
+            cfg.sensorModel = (cfg.sensorModel + 1) % 6;
+        } else {
+            cfg.sensorPinProfile = (cfg.sensorPinProfile + 1) % 3;
+        }
+        Sensors.forceDetectAndRead();
+        _needsFullRedraw = true;
+        return;
+    }
+
+    // Fila 3 (y=138..170): Modo de Baliza y Calibración de Offset Temp
+    if (ty >= 138 && ty <= 170) {
+        if (tx < 182) {
+            cfg.sensorBeaconMode = (cfg.sensorBeaconMode + 1) % 3;
+        } else if (tx < 250) {
+            cfg.tempOffsetC -= 0.5f;
+            if (cfg.tempOffsetC < -15.0f) cfg.tempOffsetC = -15.0f;
+            Sensors.forceDetectAndRead();
+        } else {
+            cfg.tempOffsetC += 0.5f;
+            if (cfg.tempOffsetC > 15.0f) cfg.tempOffsetC = 15.0f;
+            Sensors.forceDetectAndRead();
+        }
+        _needsFullRedraw = true;
+        return;
+    }
+
+    // Fila 4 (y=175..207): [DETECTAR] [TX BALIZA] [GUARDAR]
+    if (ty >= 175 && ty <= 207) {
+        if (tx < 126) {
+            showToast("Escaneando sensor...", COL_ACCENT);
+            Sensors.forceDetectAndRead();
+            _needsFullRedraw = true;
+        } else if (tx < 238) {
+            showToast("Enviando Baliza APRS...", COL_ORANGE);
+            Sensors.forceDetectAndRead();
+            Aprs.sendPositionBeacon(false);
+            _needsFullRedraw = true;
+        } else {
+            Aprs.saveConfig();
+            showToast("Config de Sensor guardada!", COL_GREEN);
+            _needsFullRedraw = true;
+        }
+        return;
     }
 }
 
