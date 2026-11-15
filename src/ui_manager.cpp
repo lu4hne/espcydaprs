@@ -31,15 +31,35 @@ void UiManager::begin() {
 void UiManager::applyDisplayHardware() {
     AprsConfig& cfg = Aprs.config();
 
-    // Encender el pin de Backlight que NO esté asignado a la salida de Audio TX
+    // Configurar brillo por PWM (LEDC canal 6) para el pin de Backlight que NO esté asignado a Audio TX
     // En modelo ST7789 (1 USB) y 2432S028R el Backlight es GPIO 21; en 2432S024C suele ser GPIO 27.
+    if (cfg.tftBrightness < 15 || cfg.tftBrightness > 100) cfg.tftBrightness = 100;
+    uint8_t blDuty = (uint8_t)(((uint32_t)cfg.tftBrightness * 255UL) / 100UL);
+    ledcSetup(6, 5000, 8);
     if (cfg.txAudioPin != CYD_BL_PIN_21) {
-        pinMode(CYD_BL_PIN_21, OUTPUT);
-        digitalWrite(CYD_BL_PIN_21, HIGH);
+        ledcAttachPin(CYD_BL_PIN_21, 6);
+    } else {
+        ledcDetachPin(CYD_BL_PIN_21);
     }
     if (cfg.txAudioPin != CYD_BL_PIN_27) {
-        pinMode(CYD_BL_PIN_27, OUTPUT);
-        digitalWrite(CYD_BL_PIN_27, HIGH);
+        ledcAttachPin(CYD_BL_PIN_27, 6);
+    } else {
+        ledcDetachPin(CYD_BL_PIN_27);
+    }
+    ledcWrite(6, blDuty);
+
+    // Configurar LED RGB trasero (GPIO 17 = Azul, GPIO 16 = Verde, activos en LOW)
+    // cuando no se usa GPS externo en GPIO 16/17.
+    if (cfg.posMode == POS_MODE_FIXED && cfg.txAudioPin != CYD_LED_B) {
+        pinMode(CYD_LED_G, OUTPUT);
+        digitalWrite(CYD_LED_G, HIGH); // Verde apagado en reposo
+        ledcSetup(7, 5000, 8);
+        ledcAttachPin(CYD_LED_B, 7);
+        uint8_t blueDuty = 255; // 255 = Apagado (activo en LOW)
+        if (Igate.isAprsIsVerified() && cfg.ledBrightness > 0) {
+            blueDuty = (cfg.ledBrightness == 1) ? 252 : 232; // 252 = ~1.2% muy tenue, 232 = ~9% medio
+        }
+        ledcWrite(7, blueDuty);
     }
 
     if (cfg.boardModel == BOARD_MODEL_ST7789) {
@@ -142,6 +162,17 @@ void UiManager::update() {
         drawTopBar();
         if (_currentTab == TAB_DASHBOARD) {
             drawDashboard(false);
+        }
+
+        // Actualizar LED RGB de estado (Azul tenue = IGate Online, Verde = RX DCD) si no se usa GPS en 16/17
+        AprsConfig& cfg = Aprs.config();
+        if (cfg.posMode == POS_MODE_FIXED && cfg.txAudioPin != CYD_LED_B) {
+            digitalWrite(CYD_LED_G, Modem.isCarrierDetected() ? LOW : HIGH);
+            uint8_t blueDuty = 255; // Apagado (activo en LOW)
+            if (Igate.isAprsIsVerified() && cfg.ledBrightness > 0) {
+                blueDuty = (cfg.ledBrightness == 1) ? 252 : 232;
+            }
+            ledcWrite(7, blueDuty);
         }
     }
 }
@@ -867,11 +898,25 @@ void UiManager::drawConfig(bool fullRedraw) {
         _tft.setTextColor(COL_WHITE, COL_CARD);
         _tft.drawCentreString(netLine, 160, 149, 2);
 
-        // Fila 4 (y=178..206): Botón de Reinicio Rápido
-        _tft.fillRoundRect(6, 178, 308, 28, 4, COL_HEADER);
-        _tft.drawRoundRect(6, 178, 308, 28, 4, COL_ORANGE);
+        // Fila 4 (y=178..206): Control de Brillo LED Azul, Brillo Pantalla TFT y Reinicio
+        const char* ledLbl = (cfg.ledBrightness == 0) ? "LED: OFF" :
+                             (cfg.ledBrightness == 1) ? "LED: TENUE" : "LED: MEDIO";
+        _tft.fillRoundRect(6, 178, 98, 28, 4, COL_CARD);
+        _tft.drawRoundRect(6, 178, 98, 28, 4, COL_ACCENT);
+        _tft.setTextColor(COL_ACCENT, COL_CARD);
+        _tft.drawCentreString(ledLbl, 55, 184, 2);
+
+        char tftLbl[20];
+        snprintf(tftLbl, sizeof(tftLbl), "TFT: %u%%", cfg.tftBrightness);
+        _tft.fillRoundRect(110, 178, 98, 28, 4, COL_CARD);
+        _tft.drawRoundRect(110, 178, 98, 28, 4, COL_YELLOW);
+        _tft.setTextColor(COL_YELLOW, COL_CARD);
+        _tft.drawCentreString(tftLbl, 159, 184, 2);
+
+        _tft.fillRoundRect(214, 178, 100, 28, 4, COL_HEADER);
+        _tft.drawRoundRect(214, 178, 100, 28, 4, COL_ORANGE);
         _tft.setTextColor(COL_ORANGE, COL_HEADER);
-        _tft.drawCentreString("REINICIAR EQUIPO ESP32 (73 de LU4HNE!)", 160, 184, 2);
+        _tft.drawCentreString("REINICIAR", 264, 184, 2);
     }
 }
 
@@ -1420,11 +1465,26 @@ void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
         }
 
     } else {
-        // Página 5: Créditos y Versión Instalada
+        // Página 5: Créditos, Versión, Brillo LED/TFT y Reinicio
         if (ty >= 176 && ty <= 208) {
-            showToast("Reiniciando ESP32 CYD APRS...", COL_ORANGE);
-            delay(600);
-            ESP.restart();
+            if (tx < 106) {
+                cfg.ledBrightness = (cfg.ledBrightness + 1) % 3; // 1 (Tenue) -> 2 (Medio) -> 0 (Off)
+                applyDisplayHardware();
+                Aprs.saveConfig();
+                _needsFullRedraw = true;
+            } else if (tx < 210) {
+                if (cfg.tftBrightness >= 100) cfg.tftBrightness = 65;
+                else if (cfg.tftBrightness >= 65) cfg.tftBrightness = 35;
+                else if (cfg.tftBrightness >= 35) cfg.tftBrightness = 15;
+                else cfg.tftBrightness = 100;
+                applyDisplayHardware();
+                Aprs.saveConfig();
+                _needsFullRedraw = true;
+            } else {
+                showToast("Reiniciando ESP32 CYD APRS...", COL_ORANGE);
+                delay(600);
+                ESP.restart();
+            }
             return;
         }
     }

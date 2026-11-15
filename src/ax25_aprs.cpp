@@ -19,8 +19,9 @@ void AprsEngine::begin() {
     loadConfig();
     Modem.configure(_cfg.txDelayMs, _cfg.txTailMs, _cfg.txVolume, _cfg.txAudioPin);
 
-    // Iniciar UART2 para módulo GPS externo (RX=GPIO17, TX=GPIO16) solo si GPIO17 no se usa para Audio TX
-    if (_cfg.txAudioPin != GPS_UART_RX_PIN) {
+    // Iniciar UART2 para módulo GPS externo (RX=GPIO17, TX=GPIO16) SOLO cuando se usa modo GPS externo.
+    // En modo Posición Fija, GPIO16 y GPIO17 son los LEDs Verde y Azul integrados en la placa CYD (activos en LOW).
+    if (_cfg.posMode == POS_MODE_GPS && _cfg.txAudioPin != GPS_UART_RX_PIN) {
         Serial2.begin(GPS_BAUD_RATE, SERIAL_8N1, GPS_UART_RX_PIN, GPS_UART_TX_PIN);
     }
     _lastBeaconMs = millis();
@@ -79,8 +80,11 @@ void AprsEngine::loadConfig() {
     _cfg.igateBeaconMode = prefs.getUChar("igBcn", IGATE_BCN_BOTH);
     _cfg.igateIsToRfMsg = prefs.getBool("igMsgRf", true);
 
-    // Parámetros OTA
+    // Parámetros OTA y Brillo
     strlcpy(_cfg.otaServerUrl, prefs.getString("otaUrl", "").c_str(), sizeof(_cfg.otaServerUrl));
+    _cfg.ledBrightness = prefs.getUChar("ledBrt", 1); // 1 = Muy tenue (~1.2%), 0 = Apagado, 2 = Medio
+    _cfg.tftBrightness = prefs.getUChar("tftBrt", 100);
+    if (_cfg.tftBrightness < 15 || _cfg.tftBrightness > 100) _cfg.tftBrightness = 100;
 
     prefs.end();
 }
@@ -126,6 +130,8 @@ void AprsEngine::saveConfig() {
     prefs.putUChar("igBcn", _cfg.igateBeaconMode);
     prefs.putBool("igMsgRf", _cfg.igateIsToRfMsg);
     prefs.putString("otaUrl", _cfg.otaServerUrl);
+    prefs.putUChar("ledBrt", _cfg.ledBrightness);
+    prefs.putUChar("tftBrt", _cfg.tftBrightness);
 
     prefs.end();
     Modem.configure(_cfg.txDelayMs, _cfg.txTailMs, _cfg.txVolume, _cfg.txAudioPin);
@@ -279,6 +285,7 @@ void AprsEngine::update() {
 }
 
 void AprsEngine::pollGps() {
+    if (_cfg.posMode != POS_MODE_GPS) return;
     while (Serial2.available() > 0) {
         char c = (char)Serial2.read();
         _gpsState.charsProcessed++;

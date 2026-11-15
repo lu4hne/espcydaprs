@@ -142,8 +142,10 @@ struct AprsConfig {
     uint8_t igateBeaconMode;// IGATE_BCN_BOTH, IGATE_BCN_IS_ONLY, IGATE_BCN_RF_ONLY
     bool igateIsToRfMsg;    // Reenviar mensajes de texto desde APRS-IS hacia RF para estaciones locales
 
-    // --- Actualización OTA Remota ---
+    // --- Actualización OTA Remota y Brillo ---
     char otaServerUrl[96];  // URL base o JSON para actualización OTA por HTTP/HTTPS
+    uint8_t ledBrightness;  // Brillo LED RGB Azul de estado: 0 = Apagado, 1 = Muy tenue (2%), 2 = Medio (10%)
+    uint8_t tftBrightness;  // Brillo de pantalla TFT (20 a 100%)
 };
 
 // Límites de almacenamiento en RAM para la interfaz gráfica
