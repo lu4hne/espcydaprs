@@ -256,17 +256,17 @@ void UiManager::drawTopBar() {
 }
 
 void UiManager::drawBottomTabs() {
-    const char* labels[6] = { "PANEL", "MONIT", "MSJS", "ESTAC", "SENS", "CONF" };
-    int tabW = 320 / 6; // 53px por pestaña
+    const char* labels[5] = { "PANEL", "MONIT", "MSJS", "ESTAC", "CONF" };
+    int tabW = 320 / 5; // 64px por pestaña
     int y = 212;
 
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < 5; i++) {
         bool sel = ((int)_currentTab == i);
         uint16_t bg = sel ? COL_ACCENT : COL_HEADER;
         uint16_t fg = sel ? COL_BG : COL_WHITE;
 
         int x0 = i * tabW;
-        int w  = (i == 5) ? (320 - x0) : (tabW - 1);
+        int w  = (i == 4) ? (320 - x0) : (tabW - 1);
         _tft.fillRect(x0, y, w, 28, bg);
         _tft.drawFastHLine(x0, y, w, sel ? COL_WHITE : COL_BORDER);
         _tft.setTextColor(fg, bg);
@@ -285,7 +285,6 @@ void UiManager::drawCurrentTab(bool fullRedraw) {
         case TAB_MONITOR:   drawMonitor(fullRedraw);   break;
         case TAB_MESSAGES:  drawMessages(fullRedraw);  break;
         case TAB_STATIONS:  drawStations(fullRedraw);  break;
-        case TAB_SENSORS:   drawSensors(fullRedraw);   break;
         case TAB_CONFIG:    drawConfig(fullRedraw);    break;
     }
 }
@@ -344,9 +343,21 @@ void UiManager::drawDashboard(bool fullRedraw) {
     _tft.drawString(modeTitle, 12, 32, 2);
 
     char latLonBuf[36];
-    snprintf(latLonBuf, sizeof(latLonBuf), "%.4f, %.4f (%dm)",
-             Aprs.getCurrentLat(), Aprs.getCurrentLon(), Aprs.getCurrentAlt());
-    _tft.setTextColor(COL_WHITE, COL_CARD);
+    if (Sensors.isConnected()) {
+        const SensorReading& sr = Sensors.reading();
+        if (sr.hasHumidity && sr.hasPressure) {
+            snprintf(latLonBuf, sizeof(latLonBuf), "WX: %.1fC %.0f%% %.0fhPa    ", sr.temperatureC, sr.humidityPct, sr.pressureHpa);
+        } else if (sr.hasPressure) {
+            snprintf(latLonBuf, sizeof(latLonBuf), "WX: %.1fC | %.1f hPa    ", sr.temperatureC, sr.pressureHpa);
+        } else {
+            snprintf(latLonBuf, sizeof(latLonBuf), "WX: %.1fC | Hum: %.0f%%    ", sr.temperatureC, sr.humidityPct);
+        }
+        _tft.setTextColor(COL_ACCENT, COL_CARD);
+    } else {
+        snprintf(latLonBuf, sizeof(latLonBuf), "%.4f, %.4f (%dm)",
+                 Aprs.getCurrentLat(), Aprs.getCurrentLon(), Aprs.getCurrentAlt());
+        _tft.setTextColor(COL_WHITE, COL_CARD);
+    }
     _tft.drawString(latLonBuf, 12, 51, 2);
 
     char line3Buf[34];
@@ -605,107 +616,24 @@ void UiManager::drawStations(bool fullRedraw) {
     }
 }
 
-void UiManager::drawSensors(bool fullRedraw) {
-    AprsConfig& cfg = Aprs.config();
-    const SensorReading& r = Sensors.reading();
-
-    // Tarjeta 1 (y=26..96): Estado del sensor y lecturas meteorológicas en vivo
-    _tft.fillRoundRect(6, 26, 308, 70, 4, COL_CARD);
-    _tft.drawRoundRect(6, 26, 308, 70, 4, r.connected ? COL_GREEN : COL_BORDER);
-
-    _tft.setTextColor(r.connected ? COL_GREEN : COL_ORANGE, COL_CARD);
-    _tft.drawString(r.statusText, 12, 30, 2);
-
-    if (r.connected) {
-        char valLine[48];
-        if (r.hasHumidity && r.hasPressure) {
-            snprintf(valLine, sizeof(valLine), "Temp: %.1f C | Hum: %.0f%% | %.1f hPa",
-                     r.temperatureC, r.humidityPct, r.pressureHpa);
-        } else if (r.hasPressure) {
-            snprintf(valLine, sizeof(valLine), "Temp: %.1f C  |  Presion: %.1f hPa",
-                     r.temperatureC, r.pressureHpa);
-        } else {
-            snprintf(valLine, sizeof(valLine), "Temp: %.1f C  |  Humedad: %.0f %%",
-                     r.temperatureC, r.humidityPct);
-        }
-        _tft.setTextColor(COL_YELLOW, COL_CARD);
-        _tft.drawString(valLine, 12, 52, 2);
-
-        char prevBuf[48];
-        char bcnPrev[56];
-        if (cfg.sensorBeaconMode == SENSOR_BCN_OFF) {
-            strlcpy(bcnPrev, "Baliza APRS: Configurado para NO enviar clima", sizeof(bcnPrev));
-            _tft.setTextColor(COL_MUTED, COL_CARD);
-        } else if (cfg.sensorBeaconMode == SENSOR_BCN_WX_PACK && Sensors.formatAprsWxPayload(prevBuf, sizeof(prevBuf))) {
-            snprintf(bcnPrev, sizeof(bcnPrev), "TX APRS WX: /_%s", prevBuf);
-            _tft.setTextColor(COL_ACCENT, COL_CARD);
-        } else if (Sensors.formatCommentTelemetry(prevBuf, sizeof(prevBuf))) {
-            snprintf(bcnPrev, sizeof(bcnPrev), "TX en Baliza: [%s]", prevBuf);
-            _tft.setTextColor(COL_WHITE, COL_CARD);
-        }
-        _tft.drawString(bcnPrev, 12, 74, 2);
-    } else {
-        _tft.setTextColor(COL_WHITE, COL_CARD);
-        _tft.drawString("Sin sensor fisico conectado.", 12, 52, 2);
-        _tft.setTextColor(COL_MUTED, COL_CARD);
-        _tft.drawString("Balizas APRS salen normales (sin datos WX).", 12, 74, 2);
-    }
-
-    // Fila 2 (y=101..133): Modelo de Sensor y Pines I2C / 1-Wire
-    _tft.fillRoundRect(6, 101, 148, 32, 3, COL_CARD);
-    _tft.drawRoundRect(6, 101, 148, 32, 3, COL_ACCENT);
-    _tft.setTextColor(COL_YELLOW, COL_CARD);
-    _tft.drawCentreString(Sensors.getModelConfigText(), 80, 109, 2);
-
-    _tft.fillRoundRect(160, 101, 154, 32, 3, COL_CARD);
-    _tft.drawRoundRect(160, 101, 154, 32, 3, COL_ACCENT);
-    _tft.setTextColor(COL_ACCENT, COL_CARD);
-    _tft.drawCentreString(Sensors.getPinProfileText(), 237, 109, 2);
-
-    // Fila 3 (y=138..170): Modo de envío en Baliza + Calibración Offset Temp (- / +)
-    _tft.fillRoundRect(6, 138, 174, 32, 3, COL_CARD);
-    _tft.drawRoundRect(6, 138, 174, 32, 3, COL_BORDER);
-    _tft.setTextColor(cfg.sensorBeaconMode == SENSOR_BCN_OFF ? COL_MUTED : COL_GREEN, COL_CARD);
-    _tft.drawCentreString(Sensors.getBeaconModeText(), 93, 146, 2);
-
-    char calStr[24];
-    snprintf(calStr, sizeof(calStr), "Ofs:%+.1fC (-/+)", cfg.tempOffsetC);
-    _tft.fillRoundRect(186, 138, 128, 32, 3, COL_CARD);
-    _tft.drawRoundRect(186, 138, 128, 32, 3, COL_BORDER);
-    _tft.setTextColor(COL_WHITE, COL_CARD);
-    _tft.drawCentreString(calStr, 250, 146, 2);
-
-    // Fila 4 (y=175..207): [DETECTAR / LEER] [TX BALIZA] [GUARDAR]
-    _tft.fillRoundRect(6, 175, 118, 32, 3, COL_ACCENT);
-    _tft.setTextColor(COL_BG, COL_ACCENT);
-    _tft.drawCentreString("DETECTAR", 65, 183, 2);
-
-    _tft.fillRoundRect(130, 175, 106, 32, 3, COL_ORANGE);
-    _tft.setTextColor(COL_BG, COL_ORANGE);
-    _tft.drawCentreString("TX BALIZA", 183, 183, 2);
-
-    _tft.fillRoundRect(242, 175, 72, 32, 3, COL_GREEN);
-    _tft.setTextColor(COL_BG, COL_GREEN);
-    _tft.drawCentreString("GUARDAR", 278, 183, 2);
-}
-
 void UiManager::drawConfig(bool fullRedraw) {
     AprsConfig& cfg = Aprs.config();
 
-    static const char* const PAGE_TITLES[5] = {
-        "CONF 1/5: MODO Y ESTACION",
-        "CONF 2/5: RADIO Y BALIZA",
-        "CONF 3/5: WIFI E IGATE",
-        "CONF 4/5: SD Y WEB OTA",
-        "CONF 5/5: CREDITOS Y VERSION"
+    static const char* const PAGE_TITLES[6] = {
+        "CONF 1/6: MODO Y ESTACION",
+        "CONF 2/6: RADIO Y BALIZA",
+        "CONF 3/6: WIFI E IGATE",
+        "CONF 4/6: SD Y WEB OTA",
+        "CONF 5/6: SENSORES CLIMA",
+        "CONF 6/6: CREDITOS Y VERSION"
     };
 
     // Encabezado con selector de página y botón GUARDAR
     _tft.setTextColor(COL_ACCENT, COL_BG);
-    _tft.drawString(PAGE_TITLES[_cfgPage % 5], 6, 27, 2);
+    _tft.drawString(PAGE_TITLES[_cfgPage % 6], 6, 27, 2);
 
     char nextLbl[16];
-    snprintf(nextLbl, sizeof(nextLbl), "PAG %u/5 >", (_cfgPage % 5) + 1);
+    snprintf(nextLbl, sizeof(nextLbl), "PAG %u/6 >", (_cfgPage % 6) + 1);
     _tft.fillRoundRect(184, 25, 66, 22, 3, COL_HEADER);
     _tft.drawRoundRect(184, 25, 66, 22, 3, COL_BORDER);
     _tft.setTextColor(COL_WHITE, COL_HEADER);
@@ -960,8 +888,82 @@ void UiManager::drawConfig(bool fullRedraw) {
             _tft.drawCentreString("ACTIVAR PORTAL WEB / AP WIFI OTA (192.168.4.1)", 160, 179, 2);
         }
 
+    } else if (_cfgPage == 4) {
+        // Página 5: Configuración y Estado de Sensores Meteorológicos (BMP280 / BME280 / AHT20 / DHT22 / DHT11)
+        const SensorReading& r = Sensors.reading();
+
+        // Fila 1 (y=52..92): Tarjeta de Estado en Vivo del Sensor
+        _tft.fillRoundRect(6, 52, 308, 40, 3, COL_CARD);
+        _tft.drawRoundRect(6, 52, 308, 40, 3, r.connected ? COL_GREEN : COL_BORDER);
+        _tft.setTextColor(r.connected ? COL_GREEN : COL_ORANGE, COL_CARD);
+        _tft.drawString(r.statusText, 12, 55, 2);
+
+        if (r.connected) {
+            char valLine[48];
+            if (r.hasHumidity && r.hasPressure) {
+                snprintf(valLine, sizeof(valLine), "Temp: %.1f C | Hum: %.0f%% | %.1f hPa",
+                         r.temperatureC, r.humidityPct, r.pressureHpa);
+            } else if (r.hasPressure) {
+                snprintf(valLine, sizeof(valLine), "Temp: %.1f C  |  Presion: %.1f hPa",
+                         r.temperatureC, r.pressureHpa);
+            } else {
+                snprintf(valLine, sizeof(valLine), "Temp: %.1f C  |  Humedad: %.0f %%",
+                         r.temperatureC, r.humidityPct);
+            }
+            _tft.setTextColor(COL_YELLOW, COL_CARD);
+            _tft.drawString(valLine, 12, 73, 2);
+        } else {
+            _tft.setTextColor(COL_MUTED, COL_CARD);
+            _tft.drawString("Sin sensor conectado (No informa en balizas)", 12, 73, 2);
+        }
+
+        // Fila 2 (y=97..131): Modelo de Sensor y Pines de Conexión (P3 IO16/17 o CN1)
+        _tft.fillRoundRect(6, 97, 148, 34, 3, COL_CARD);
+        _tft.drawRoundRect(6, 97, 148, 34, 3, COL_ACCENT);
+        _tft.setTextColor(COL_YELLOW, COL_CARD);
+        _tft.drawCentreString(Sensors.getModelConfigText(), 80, 106, 2);
+
+        _tft.fillRoundRect(160, 97, 154, 34, 3, COL_CARD);
+        _tft.drawRoundRect(160, 97, 154, 34, 3, COL_ACCENT);
+        _tft.setTextColor(COL_ACCENT, COL_CARD);
+        _tft.drawCentreString(Sensors.getPinProfileText(), 237, 106, 2);
+
+        // Fila 3 (y=136..170): Modo de Inclusión en Baliza APRS + Calibración Offset Temp (- / +)
+        _tft.fillRoundRect(6, 136, 174, 34, 3, COL_CARD);
+        _tft.drawRoundRect(6, 136, 174, 34, 3, COL_BORDER);
+        _tft.setTextColor(cfg.sensorBeaconMode == SENSOR_BCN_OFF ? COL_MUTED : COL_GREEN, COL_CARD);
+        _tft.drawCentreString(Sensors.getBeaconModeText(), 93, 145, 2);
+
+        char calStr[24];
+        snprintf(calStr, sizeof(calStr), "Ofs:%+.1fC (-/+)", cfg.tempOffsetC);
+        _tft.fillRoundRect(186, 136, 128, 34, 3, COL_CARD);
+        _tft.drawRoundRect(186, 136, 128, 34, 3, COL_BORDER);
+        _tft.setTextColor(COL_WHITE, COL_CARD);
+        _tft.drawCentreString(calStr, 250, 145, 2);
+
+        // Fila 4 (y=175..205): Vista previa de Trama WX + Botón [DETECTAR]
+        _tft.fillRoundRect(6, 175, 212, 30, 3, COL_CARD);
+        _tft.drawRoundRect(6, 175, 212, 30, 3, COL_BORDER);
+        char prevBuf[40];
+        char bcnPrev[44];
+        if (!r.connected || cfg.sensorBeaconMode == SENSOR_BCN_OFF) {
+            strlcpy(bcnPrev, "Baliza: Normal (sin datos WX)", sizeof(bcnPrev));
+            _tft.setTextColor(COL_MUTED, COL_CARD);
+        } else if (cfg.sensorBeaconMode == SENSOR_BCN_WX_PACK && Sensors.formatAprsWxPayload(prevBuf, sizeof(prevBuf))) {
+            snprintf(bcnPrev, sizeof(bcnPrev), "WX: /_%s", prevBuf);
+            _tft.setTextColor(COL_ACCENT, COL_CARD);
+        } else if (Sensors.formatCommentTelemetry(prevBuf, sizeof(prevBuf))) {
+            snprintf(bcnPrev, sizeof(bcnPrev), "TX: [%s]", prevBuf);
+            _tft.setTextColor(COL_WHITE, COL_CARD);
+        }
+        _tft.drawString(bcnPrev, 12, 182, 2);
+
+        _tft.fillRoundRect(224, 175, 90, 30, 3, COL_ACCENT);
+        _tft.setTextColor(COL_BG, COL_ACCENT);
+        _tft.drawCentreString("DETECTAR", 269, 182, 2);
+
     } else {
-        // Página 5: Créditos del Proyecto y Versión Instalada
+        // Página 6 (Siempre la última): Créditos del Proyecto y Versión Instalada (About)
         // Tarjeta 1 (y=52..92): Autor y Créditos
         _tft.fillRoundRect(6, 52, 308, 40, 4, COL_CARD);
         _tft.drawRoundRect(6, 52, 308, 40, 4, COL_ACCENT);
@@ -1238,9 +1240,9 @@ void UiManager::handleTouch(uint16_t tx, uint16_t ty) {
 
     // Barra de pestañas inferior (y >= 210)
     if (ty >= 210) {
-        int tabIdx = tx / (320 / 6);
-        if (tabIdx > 5) tabIdx = 5;
-        if (tabIdx >= 0 && tabIdx <= 5) {
+        int tabIdx = tx / (320 / 5);
+        if (tabIdx > 4) tabIdx = 4;
+        if (tabIdx >= 0 && tabIdx <= 4) {
             _currentTab = (UiTab)tabIdx;
             if (_currentTab == TAB_MESSAGES) {
                 Aprs.clearUnreadMessages();
@@ -1255,7 +1257,6 @@ void UiManager::handleTouch(uint16_t tx, uint16_t ty) {
         case TAB_MONITOR:   handleMonitorTouch(tx, ty);   break;
         case TAB_MESSAGES:  handleMessagesTouch(tx, ty);  break;
         case TAB_STATIONS:  handleStationsTouch(tx, ty);  break;
-        case TAB_SENSORS:   handleSensorsTouch(tx, ty);   break;
         case TAB_CONFIG:    handleConfigTouch(tx, ty);    break;
     }
 }
@@ -1364,65 +1365,13 @@ void UiManager::handleStationsTouch(uint16_t tx, uint16_t ty) {
     }
 }
 
-void UiManager::handleSensorsTouch(uint16_t tx, uint16_t ty) {
-    AprsConfig& cfg = Aprs.config();
-
-    // Fila 2 (y=101..133): Modelo de Sensor y Pines
-    if (ty >= 101 && ty <= 133) {
-        if (tx < 156) {
-            cfg.sensorModel = (cfg.sensorModel + 1) % 6;
-        } else {
-            cfg.sensorPinProfile = (cfg.sensorPinProfile + 1) % 3;
-        }
-        Sensors.forceDetectAndRead();
-        _needsFullRedraw = true;
-        return;
-    }
-
-    // Fila 3 (y=138..170): Modo de Baliza y Calibración de Offset Temp
-    if (ty >= 138 && ty <= 170) {
-        if (tx < 182) {
-            cfg.sensorBeaconMode = (cfg.sensorBeaconMode + 1) % 3;
-        } else if (tx < 250) {
-            cfg.tempOffsetC -= 0.5f;
-            if (cfg.tempOffsetC < -15.0f) cfg.tempOffsetC = -15.0f;
-            Sensors.forceDetectAndRead();
-        } else {
-            cfg.tempOffsetC += 0.5f;
-            if (cfg.tempOffsetC > 15.0f) cfg.tempOffsetC = 15.0f;
-            Sensors.forceDetectAndRead();
-        }
-        _needsFullRedraw = true;
-        return;
-    }
-
-    // Fila 4 (y=175..207): [DETECTAR] [TX BALIZA] [GUARDAR]
-    if (ty >= 175 && ty <= 207) {
-        if (tx < 126) {
-            showToast("Escaneando sensor...", COL_ACCENT);
-            Sensors.forceDetectAndRead();
-            _needsFullRedraw = true;
-        } else if (tx < 238) {
-            showToast("Enviando Baliza APRS...", COL_ORANGE);
-            Sensors.forceDetectAndRead();
-            Aprs.sendPositionBeacon(false);
-            _needsFullRedraw = true;
-        } else {
-            Aprs.saveConfig();
-            showToast("Config de Sensor guardada!", COL_GREEN);
-            _needsFullRedraw = true;
-        }
-        return;
-    }
-}
-
 void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
     AprsConfig& cfg = Aprs.config();
 
-    // Botones de barra superior de Config: [PAG x/5] y [GUARDAR]
+    // Botones de barra superior de Config: [PAG x/6] y [GUARDAR]
     if (ty >= 24 && ty <= 48) {
         if (tx >= 180 && tx <= 251) {
-            _cfgPage = (_cfgPage + 1) % 5;
+            _cfgPage = (_cfgPage + 1) % 6;
             _needsFullRedraw = true;
             return;
         }
@@ -1622,8 +1571,45 @@ void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
             return;
         }
 
+    } else if (_cfgPage == 4) {
+        // Página 5: Configuración de Sensores Meteorológicos (BMP280 / BME280 / AHT20 / DHT22 / DHT11)
+        // Fila 2 (y=97..131): Modelo de Sensor y Pines
+        if (ty >= 97 && ty <= 131) {
+            if (tx < 156) {
+                cfg.sensorModel = (cfg.sensorModel + 1) % 6;
+            } else {
+                cfg.sensorPinProfile = (cfg.sensorPinProfile + 1) % 3;
+            }
+            Sensors.forceDetectAndRead();
+            _needsFullRedraw = true;
+            return;
+        }
+        // Fila 3 (y=136..170): Modo de Baliza y Calibración de Offset Temp (- / +)
+        if (ty >= 136 && ty <= 170) {
+            if (tx < 182) {
+                cfg.sensorBeaconMode = (cfg.sensorBeaconMode + 1) % 3;
+            } else if (tx < 250) {
+                cfg.tempOffsetC -= 0.5f;
+                if (cfg.tempOffsetC < -15.0f) cfg.tempOffsetC = -15.0f;
+                Sensors.forceDetectAndRead();
+            } else {
+                cfg.tempOffsetC += 0.5f;
+                if (cfg.tempOffsetC > 15.0f) cfg.tempOffsetC = 15.0f;
+                Sensors.forceDetectAndRead();
+            }
+            _needsFullRedraw = true;
+            return;
+        }
+        // Fila 4 (y=175..205): Botón [DETECTAR]
+        if (ty >= 175 && ty <= 205 && tx >= 220) {
+            showToast("Escaneando sensor...", COL_ACCENT);
+            Sensors.forceDetectAndRead();
+            _needsFullRedraw = true;
+            return;
+        }
+
     } else {
-        // Página 5: Créditos, Versión, Brillo LED/TFT y Reinicio
+        // Página 6 (Siempre la última): Créditos, Versión, Brillo LED/TFT y Reinicio
         if (ty >= 176 && ty <= 208) {
             if (tx < 106) {
                 cfg.ledBrightness = (cfg.ledBrightness + 1) % 3; // 1 (Tenue) -> 2 (Medio) -> 0 (Off)

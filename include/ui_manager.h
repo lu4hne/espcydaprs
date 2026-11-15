@@ -11,8 +11,7 @@ enum UiTab : uint8_t {
     TAB_MONITOR   = 1,
     TAB_MESSAGES  = 2,
     TAB_STATIONS  = 3,
-    TAB_SENSORS   = 4,
-    TAB_CONFIG    = 5
+    TAB_CONFIG    = 4
 };
 
 enum KeyboardTarget : uint8_t {
@@ -48,7 +47,7 @@ private:
     CST820Touch _touch;
 
     UiTab _currentTab = TAB_DASHBOARD;
-    uint8_t _cfgPage = 0; // 0 = Modo/Estación, 1 = Radio/Baliza, 2 = WiFi/IGate APRS-IS, 3 = SD/OTA Update
+    uint8_t _cfgPage = 0; // 0=Modo/Estación, 1=Radio/Baliza, 2=WiFi/IGate, 3=SD/OTA, 4=Sensores WX, 5=Créditos/Versión
     bool _needsFullRedraw = true;
     uint32_t _lastDynamicUpdateMs = 0;
     uint32_t _lastTouchMs = 0;
@@ -80,7 +79,6 @@ private:
     void drawMonitor(bool fullRedraw);
     void drawMessages(bool fullRedraw);
     void drawStations(bool fullRedraw);
-    void drawSensors(bool fullRedraw);
     void drawConfig(bool fullRedraw);
 
     // Teclado QWERTY en pantalla
@@ -95,7 +93,6 @@ private:
     void handleMonitorTouch(uint16_t tx, uint16_t ty);
     void handleMessagesTouch(uint16_t tx, uint16_t ty);
     void handleStationsTouch(uint16_t tx, uint16_t ty);
-    void handleSensorsTouch(uint16_t tx, uint16_t ty);
     void handleConfigTouch(uint16_t tx, uint16_t ty);
 
     void showToast(const char* msg, uint16_t bgColor);
