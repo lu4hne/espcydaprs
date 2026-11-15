@@ -48,9 +48,16 @@ void UiManager::applyDisplayHardware() {
     }
     ledcWrite(6, blDuty);
 
-    // Configurar LED RGB trasero (GPIO 17 = Azul, GPIO 16 = Verde, activos en LOW)
-    // cuando no se usa GPS externo en GPIO 16/17.
-    if (cfg.posMode == POS_MODE_FIXED && cfg.txAudioPin != CYD_LED_B) {
+    // Configurar pines GPIO 16 / GPIO 17:
+    // En la placa CYD (ST7789 / ILI9341), el fabricante cableó el LED RGB trasero (R=IO4, G=IO16, B=IO17)
+    // en paralelo con los pines del conector blanco P3 (IO4, IO16, IO17).
+    // - Si Posición = GPS (Modo Tracker con GPS externo), IO17 (RX2) e IO16 (TX2) se dedican al UART2 del GPS.
+    // - Si Posición = FIJA (sin GPS externo), IO16 e IO17 quedan libres y se controlan por PWM para no encandilar.
+    if (cfg.posMode == POS_MODE_GPS && cfg.txAudioPin != GPS_UART_RX_PIN) {
+        ledcDetachPin(CYD_LED_B);
+        Serial2.begin(GPS_BAUD_RATE, SERIAL_8N1, GPS_UART_RX_PIN, GPS_UART_TX_PIN);
+    } else if (cfg.txAudioPin != CYD_LED_B) {
+        Serial2.end();
         pinMode(CYD_LED_G, OUTPUT);
         digitalWrite(CYD_LED_G, HIGH); // Verde apagado en reposo
         ledcSetup(7, 5000, 8);
@@ -1284,6 +1291,7 @@ void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
         if (ty >= 52 && ty <= 86) {
             StationMode nextMode = (StationMode)((cfg.stationMode + 1) % 3);
             Aprs.applyStationMode(nextMode);
+            applyDisplayHardware();
             _needsFullRedraw = true;
             return;
         }
@@ -1308,6 +1316,7 @@ void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
         if (ty >= 130 && ty <= 164) {
             if (tx < 90) {
                 cfg.posMode = (cfg.posMode == POS_MODE_FIXED) ? POS_MODE_GPS : POS_MODE_FIXED;
+                applyDisplayHardware();
                 _needsFullRedraw = true;
                 return;
             }
