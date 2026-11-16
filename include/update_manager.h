@@ -1,8 +1,10 @@
 #pragma once
 
 #include <Arduino.h>
-#include <TFT_eSPI.h>
+#include <FS.h>
+using fs::FS;
 #include <WebServer.h>
+#include <TFT_eSPI.h>
 #include "config.h"
 
 #define MAX_SD_BIN_FILES 4

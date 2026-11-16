@@ -36,6 +36,22 @@ void UiManager::applyDisplayHardware() {
     // En modelo ST7789 (1 USB) el Backlight usa GPIO 27/21; en 2432S024C usa GPIO 27/21.
     if (cfg.tftBrightness < 15 || cfg.tftBrightness > 100) cfg.tftBrightness = 100;
     uint8_t blDuty = (uint8_t)(((uint32_t)cfg.tftBrightness * 255UL) / 100UL);
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
+    if (cfg.txAudioPin != CYD_BL_PIN_21) {
+        pinMode(CYD_BL_PIN_21, OUTPUT);
+        ledcAttach(CYD_BL_PIN_21, 5000, 8);
+        ledcWrite(CYD_BL_PIN_21, blDuty);
+    } else {
+        ledcDetach(CYD_BL_PIN_21);
+    }
+    if (cfg.txAudioPin != CYD_BL_PIN_27) {
+        pinMode(CYD_BL_PIN_27, OUTPUT);
+        ledcAttach(CYD_BL_PIN_27, 5000, 8);
+        ledcWrite(CYD_BL_PIN_27, blDuty);
+    } else {
+        ledcDetach(CYD_BL_PIN_27);
+    }
+#else
     ledcSetup(0, 5000, 8);
     if (cfg.txAudioPin != CYD_BL_PIN_21) {
         pinMode(CYD_BL_PIN_21, OUTPUT);
@@ -50,6 +66,7 @@ void UiManager::applyDisplayHardware() {
         ledcDetachPin(CYD_BL_PIN_27);
     }
     ledcWrite(0, blDuty);
+#endif
 
     // Configurar pines GPIO 16 / GPIO 17 (LEDC canal 2, Timer 1 independiente):
     // En la placa CYD (ST7789 / ILI9341), el fabricante cableó el LED RGB trasero (R=IO4, G=IO16, B=IO17)
@@ -57,19 +74,28 @@ void UiManager::applyDisplayHardware() {
     // - Si Posición = GPS (Modo Tracker con GPS externo), IO17 (RX2) e IO16 (TX2) se dedican al UART2 del GPS.
     // - Si Posición = FIJA (sin GPS externo), IO16 e IO17 quedan libres y se controlan por PWM para no encandilar.
     if (cfg.posMode == POS_MODE_GPS && cfg.txAudioPin != GPS_UART_RX_PIN) {
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
+        ledcDetach(CYD_LED_B);
+#else
         ledcDetachPin(CYD_LED_B);
+#endif
         Serial2.begin(GPS_BAUD_RATE, SERIAL_8N1, GPS_UART_RX_PIN, GPS_UART_TX_PIN);
     } else if (cfg.txAudioPin != CYD_LED_B) {
         Serial2.end();
         pinMode(CYD_LED_G, OUTPUT);
         digitalWrite(CYD_LED_G, HIGH); // Verde apagado en reposo
-        ledcSetup(2, 5000, 8);
-        ledcAttachPin(CYD_LED_B, 2);
         uint8_t blueDuty = 255; // 255 = Apagado (activo en LOW)
         if (Igate.isAprsIsVerified() && cfg.ledBrightness > 0) {
             blueDuty = (cfg.ledBrightness == 1) ? 252 : 232; // 252 = ~1.2% muy tenue, 232 = ~9% medio
         }
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
+        ledcAttach(CYD_LED_B, 5000, 8);
+        ledcWrite(CYD_LED_B, blueDuty);
+#else
+        ledcSetup(2, 5000, 8);
+        ledcAttachPin(CYD_LED_B, 2);
         ledcWrite(2, blueDuty);
+#endif
     }
 
     if (cfg.boardModel == BOARD_MODEL_ST7789) {
@@ -184,7 +210,11 @@ void UiManager::update() {
             if (Igate.isAprsIsVerified() && cfg.ledBrightness > 0) {
                 blueDuty = (cfg.ledBrightness == 1) ? 252 : 232;
             }
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
+            ledcWrite(CYD_LED_B, blueDuty);
+#else
             ledcWrite(2, blueDuty);
+#endif
         }
     }
 }

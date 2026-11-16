@@ -908,7 +908,104 @@ void AprsEngine::parseAprsInfo(DecodedPacket* pkt) {
         pkt->type = APRS_PKT_POSITION;
         int offset = (dti == '/' || dti == '@') ? 8 : 1; // Saltar timestamp de 7 bytes si existe
 
-        // Formato sin comprimir: DDMM.mmN/DDDMM.mmW$
+        auto formatCleanRestAndWx = [&](const char* rest) {
+            const char* p = rest;
+            // Buscar altitud /A=xxxxxx si está presente
+            const char* altTag = strstr(p, "/A=");
+            if (altTag && strlen(altTag) >= 9) {
+                char altFeetStr[7];
+                memcpy(altFeetStr, altTag + 3, 6);
+                altFeetStr[6] = '\0';
+                pkt->altitudeM = (int16_t)roundf(atol(altFeetStr) * 0.3048f);
+            }
+
+            // Detectar cadena meteorológica APRS / Radiosonda (ej. ".../...g...t032h01b00000RS41ng...")
+            if (strlen(p) >= 14 && p[3] == '/' && p[7] == 'g') {
+                const char* cur = p + 11;
+                bool hasTemp = false, hasHum = false, hasBaro = false;
+                float tempC = 0.0f;
+                int humPct = 0;
+                float baroHpa = 0.0f;
+
+                while (*cur != '\0') {
+                    if (*cur == 't' && (isdigit((unsigned char)cur[1]) || cur[1] == '-' || cur[1] == '.') &&
+                        strlen(cur) >= 4) {
+                        if (cur[1] != '.') {
+                            char tBuf[4] = { cur[1], cur[2], cur[3], '\0' };
+                            tempC = (atof(tBuf) - 32.0f) * (5.0f / 9.0f);
+                            hasTemp = true;
+                        }
+                        cur += 4;
+                    } else if (*cur == 'h' && isdigit((unsigned char)cur[1]) && isdigit((unsigned char)cur[2])) {
+                        char hBuf[3] = { cur[1], cur[2], '\0' };
+                        humPct = atoi(hBuf);
+                        if (humPct == 0) humPct = 100;
+                        hasHum = true;
+                        cur += 3;
+                    } else if (*cur == 'b' && strlen(cur) >= 6 &&
+                               isdigit((unsigned char)cur[1]) && isdigit((unsigned char)cur[2]) &&
+                               isdigit((unsigned char)cur[3]) && isdigit((unsigned char)cur[4]) &&
+                               isdigit((unsigned char)cur[5])) {
+                        char bBuf[6];
+                        memcpy(bBuf, cur + 1, 5);
+                        bBuf[5] = '\0';
+                        long bVal = atol(bBuf);
+                        if (bVal > 0) {
+                            baroHpa = bVal / 10.0f;
+                            hasBaro = true;
+                        }
+                        cur += 6;
+                    } else if ((*cur == 'r' || *cur == 'p' || *cur == 'P' || *cur == 'L' || *cur == 's') &&
+                               strlen(cur) >= 4 && (isdigit((unsigned char)cur[1]) || cur[1] == '.')) {
+                        cur += 4;
+                    } else {
+                        break;
+                    }
+                }
+
+                while (*cur == ' ') cur++;
+                char wxSummary[36] = "";
+                if (hasTemp) {
+                    char tmp[16];
+                    snprintf(tmp, sizeof(tmp), "%.1fC", tempC);
+                    strlcat(wxSummary, tmp, sizeof(wxSummary));
+                }
+                if (hasHum) {
+                    char tmp[12];
+                    snprintf(tmp, sizeof(tmp), "%s%d%%", strlen(wxSummary) ? " " : "", humPct);
+                    strlcat(wxSummary, tmp, sizeof(wxSummary));
+                }
+                if (hasBaro) {
+                    char tmp[16];
+                    snprintf(tmp, sizeof(tmp), "%s%.0fhPa", strlen(wxSummary) ? " " : "", baroHpa);
+                    strlcat(wxSummary, tmp, sizeof(wxSummary));
+                }
+
+                if (strlen(wxSummary) > 0 && strlen(cur) > 0) {
+                    snprintf(pkt->comment, sizeof(pkt->comment), "[%s] %s", wxSummary, cur);
+                } else if (strlen(wxSummary) > 0) {
+                    snprintf(pkt->comment, sizeof(pkt->comment), "WX: %s", wxSummary);
+                } else {
+                    strlcpy(pkt->comment, strlen(cur) > 0 ? cur : p, sizeof(pkt->comment));
+                }
+                return;
+            }
+
+            if (altTag && strlen(altTag) >= 9) {
+                const char* afterAlt = altTag + 9;
+                while (*afterAlt == ' ') afterAlt++;
+                if (altTag > p) {
+                    // También conservar texto previo a /A= si no es solo rumbo/velocidad
+                    strlcpy(pkt->comment, strlen(afterAlt) > 0 ? afterAlt : p, sizeof(pkt->comment));
+                } else {
+                    strlcpy(pkt->comment, afterAlt, sizeof(pkt->comment));
+                }
+            } else {
+                strlcpy(pkt->comment, p, sizeof(pkt->comment));
+            }
+        };
+
+        // 2A. Formato sin comprimir: DDMM.mmN/DDDMM.mmW$
         if (len >= (size_t)(offset + 19) &&
             (info[offset + 7] == 'N' || info[offset + 7] == 'S') &&
             (info[offset + 17] == 'E' || info[offset + 17] == 'W')) {
@@ -932,28 +1029,74 @@ void AprsEngine::parseAprsInfo(DecodedPacket* pkt) {
             if (info[offset + 17] == 'W') lon = -lon;
 
             pkt->symbolCode = info[offset + 18];
-            pkt->hasPosition = true;
             pkt->lat = lat;
             pkt->lon = lon;
 
-            pkt->distanceKm = calcDistanceKm(getCurrentLat(), getCurrentLon(), lat, lon);
-            pkt->bearingDeg = calcBearingDeg(getCurrentLat(), getCurrentLon(), lat, lon);
-
-            const char* rest = &info[offset + 19];
-            // Buscar altitud /A=xxxxxx si está presente
-            const char* altTag = strstr(rest, "/A=");
-            if (altTag && strlen(altTag) >= 9) {
-                char altFeetStr[7];
-                memcpy(altFeetStr, altTag + 3, 6);
-                altFeetStr[6] = '\0';
-                pkt->altitudeM = (int16_t)roundf(atol(altFeetStr) * 0.3048f);
-                const char* afterAlt = altTag + 9;
-                while (*afterAlt == ' ') afterAlt++;
-                strlcpy(pkt->comment, afterAlt, sizeof(pkt->comment));
+            // Si la sonda/tracker reporta 0000.00S/00000.00W (sin fix GPS aún), no calcular distancia falsa
+            if (fabs(lat) > 0.0001 || fabs(lon) > 0.0001) {
+                pkt->hasPosition = true;
+                pkt->distanceKm = calcDistanceKm(getCurrentLat(), getCurrentLon(), lat, lon);
+                pkt->bearingDeg = calcBearingDeg(getCurrentLat(), getCurrentLon(), lat, lon);
             } else {
-                strlcpy(pkt->comment, rest, sizeof(pkt->comment));
+                pkt->hasPosition = false;
+                pkt->distanceKm = 0.0f;
+                pkt->bearingDeg = 0;
             }
+
+            formatCleanRestAndWx(&info[offset + 19]);
             return;
+        }
+
+        // 2B. Formato Comprimido Base-91 APRS (/YYYYXXXX$csT) usado por sondas y trackers compactos
+        if (len >= (size_t)(offset + 13) &&
+            (info[offset] == '/' || info[offset] == '\\' ||
+             (info[offset] >= 'A' && info[offset] <= 'Z') ||
+             (info[offset] >= '0' && info[offset] <= '9'))) {
+            bool validB91 = true;
+            for (int k = 1; k <= 8; k++) {
+                uint8_t c = (uint8_t)info[offset + k];
+                if (c < 33 || c > 124) {
+                    validB91 = false;
+                    break;
+                }
+            }
+            if (validB91) {
+                pkt->symbolTable = info[offset];
+                double yVal = (double)(info[offset + 1] - 33) * 753571.0 +
+                              (double)(info[offset + 2] - 33) * 8281.0 +
+                              (double)(info[offset + 3] - 33) * 91.0 +
+                              (double)(info[offset + 4] - 33);
+                double xVal = (double)(info[offset + 5] - 33) * 753571.0 +
+                              (double)(info[offset + 6] - 33) * 8281.0 +
+                              (double)(info[offset + 7] - 33) * 91.0 +
+                              (double)(info[offset + 8] - 33);
+
+                double lat = 90.0 - (yVal / 380926.0);
+                double lon = -180.0 + (xVal / 190463.0);
+                pkt->symbolCode = info[offset + 9];
+                pkt->lat = lat;
+                pkt->lon = lon;
+
+                if (fabs(lat) > 0.0001 || fabs(lon) > 0.0001) {
+                    pkt->hasPosition = true;
+                    pkt->distanceKm = calcDistanceKm(getCurrentLat(), getCurrentLon(), lat, lon);
+                    pkt->bearingDeg = calcBearingDeg(getCurrentLat(), getCurrentLon(), lat, lon);
+                }
+
+                // Decodificar altitud comprimida si (T - 33) tiene bits 0x18 == 0x10
+                uint8_t cS = (uint8_t)info[offset + 10];
+                uint8_t sE = (uint8_t)info[offset + 11];
+                uint8_t tByte = (uint8_t)info[offset + 12];
+                if (cS >= 33 && cS <= 124 && sE >= 33 && sE <= 124 &&
+                    tByte >= 33 && (((tByte - 33) & 0x18) == 0x10)) {
+                    int expVal = (int)(cS - 33) * 91 + (int)(sE - 33);
+                    double altFeet = pow(1.002, (double)expVal);
+                    pkt->altitudeM = (int16_t)round(altFeet * 0.3048);
+                }
+
+                formatCleanRestAndWx(&info[offset + 13]);
+                return;
+            }
         }
     }
 

@@ -113,13 +113,21 @@ bool SensorManager::forceDetectAndRead() {
     if (cfg.sensorModel == SENSOR_DHT22 || cfg.sensorModel == SENSOR_DHT11) {
         int8_t dhtPin = (cfg.sensorPinProfile == SENSOR_PINS_16_17) ? 17 : sda;
         if (dhtPin == CYD_LED_B) {
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
+            ledcDetach(CYD_LED_B);
+#else
             ledcDetachPin(CYD_LED_B);
+#endif
         }
         ok = readDhtSensor(dhtPin, cfg.sensorModel == SENSOR_DHT22);
     } else {
         // Sensores I2C (AUTO, BMP280/BME280, AHT20)
         if (sda == CYD_LED_B || scl == CYD_LED_B) {
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
+            ledcDetach(CYD_LED_B);
+#else
             ledcDetachPin(CYD_LED_B);
+#endif
         }
         if (cfg.sensorModel == SENSOR_AUTO_I2C) {
             ok = initAndReadBmpBme280(sda, scl);
@@ -147,9 +155,14 @@ bool SensorManager::forceDetectAndRead() {
             Wire.end();
             pinMode(CYD_LED_G, OUTPUT);
             digitalWrite(CYD_LED_G, HIGH);
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
+            ledcAttach(CYD_LED_B, 5000, 8);
+            ledcWrite(CYD_LED_B, 255);
+#else
             ledcSetup(2, 5000, 8);
             ledcAttachPin(CYD_LED_B, 2);
             ledcWrite(2, 255);
+#endif
         }
     }
 
