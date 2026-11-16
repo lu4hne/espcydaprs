@@ -4,6 +4,12 @@ Aplicación completa de **codificación y decodificación APRS a 1200 baudios (A
 
 Permite conectar directamente un handy o base **Yaesu** o **Baofeng** (en VHF `144.390 MHz` / `144.930 MHz` o UHF) para operar tanto en terreno como **Tracker autónomo con GPS** como en el shack como **Estación Fija + IGate (RF $\leftrightarrow$ APRS-IS)**, **Estación Meteorológica APRS WX** y **Digipeater Fill-in `WIDE1-1`**.
 
+> ### 🌐 Instalador Web Online (Sin Instalar Programas ni Compilar)
+> Puedes grabar tu placa CYD o actualizarla a la última versión directamente desde tu navegador (**Google Chrome** o **Microsoft Edge**) entrando a:
+> **👉 [https://lu4hne.github.io/espcydaprs/](https://lu4hne.github.io/espcydaprs/)**
+> 
+> *Incluye grabación con 1 clic por WebSerial, actualización rápida conservando tu indicativo y monitor serie en vivo para ver paquetes.*
+
 ---
 
 ## Características Principales

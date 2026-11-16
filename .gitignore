@@ -8,6 +8,7 @@
 *.elf
 *.bin
 !utils/firmware/*.bin
+!docs/firmware/*.bin
 utils/bin/
 *.map
 
