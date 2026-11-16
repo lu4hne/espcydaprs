@@ -162,24 +162,25 @@ void UiManager::update() {
     // 2. Modales de emergencia / cancelación / teclado
     if (_showEmergModal) {
         if (millis() - _emergModalTimerMs > 5000) {
-            // Timeout de 5 segundos sin tocar: se cancela y cierra solo
+            // Timeout de 5 segundos sin tocar: se cancela y cierra solo, refrescando el panel completo
             _showEmergModal = false;
             _emergConfirmStep = 0;
             _needsFullRedraw = true;
         } else {
-            // Actualizar barra regresiva de 5 segundos
-            uint32_t elapsed = millis() - _emergModalTimerMs;
-            int barW = 276;
-            int remW = (int)(((5000 - elapsed) * barW) / 5000);
-            if (remW < 0) remW = 0;
-            _tft.fillRect(22, 154, remW, 8, (elapsed < 3000) ? COL_ORANGE : COL_RED);
-            _tft.fillRect(22 + remW, 154, barW - remW, 8, COL_BG);
+            if (_needsFullRedraw) {
+                drawEmergConfirmModal();
+                _needsFullRedraw = false;
+            } else {
+                // Actualizar barra regresiva de 5 segundos
+                uint32_t elapsed = millis() - _emergModalTimerMs;
+                int barW = 276;
+                int remW = (int)(((5000 - elapsed) * barW) / 5000);
+                if (remW < 0) remW = 0;
+                _tft.fillRect(22, 154, remW, 8, (elapsed < 3000) ? COL_ORANGE : COL_RED);
+                _tft.fillRect(22 + remW, 154, barW - remW, 8, COL_BG);
+            }
+            return;
         }
-        if (_needsFullRedraw) {
-            drawEmergConfirmModal();
-            _needsFullRedraw = false;
-        }
-        return;
     }
 
     if (_showCancelModal) {
