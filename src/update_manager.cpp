@@ -622,10 +622,25 @@ void UpdateManager::handleHttpRoot() {
     html += "<option value='2'" + String(c.igateBeaconMode == IGATE_BCN_RF_ONLY ? " selected" : "") + ">Solo RF (VHF/UHF)</option></select></div></div>";
 
     html += "<label>URL Servidor / Binario OTA Remoto (Opcional):</label><input name='otaUrl' maxlength='94' value='" + String(c.otaServerUrl) + "'>";
+
+    html += "<h2 style='margin-top:18px;'>3. Aviso de Emergencia (SOS / Auxilio) - Solo Tracker</h2>";
+    html += "<div class='row'><div><label>Intervalo Baliza SOS (s):</label><select name='emgInt'>";
+    html += "<option value='60'" + String(c.emergIntervalSec == 60 ? " selected" : "") + ">60 segundos</option>";
+    html += "<option value='120'" + String(c.emergIntervalSec == 120 ? " selected" : "") + ">120 segundos (Recomendado)</option>";
+    html += "<option value='180'" + String(c.emergIntervalSec == 180 ? " selected" : "") + ">180 segundos</option></select></div>";
+    html += "<div><label>Enviar Mensaje APRS Directo:</label><select name='emgMsg'>";
+    html += "<option value='0'" + String(!c.emergSendDirectMsg ? " selected" : "") + ">No</option>";
+    html += "<option value='1'" + String(c.emergSendDirectMsg ? " selected" : "") + ">Si</option></select></div></div>";
+
+    html += "<div class='row'><div><label>Destinatario Mensaje SOS (Callsign):</label><input name='emgDst' maxlength='9' value='" + String(c.emergMsgDest) + "'></div>";
+    html += "<div><label>Alerta Sonora Parlante (IO26):</label><select name='emgSnd'>";
+    html += "<option value='0'" + String(!c.emergSoundAlert ? " selected" : "") + ">Desactivada (Silencioso)</option>";
+    html += "<option value='1'" + String(c.emergSoundAlert ? " selected" : "") + ">Activada (Sirena cada 15s)</option></select></div></div>";
+
     html += "<button class='btn' type='submit'>GUARDAR CONFIGURACIÓN EN FLASH NVS</button></form>";
 
     html += "<form class='card' method='POST' action='/update' enctype='multipart/form-data'>";
-    html += "<h2>3. Actualización de Firmware Web OTA (.bin)</h2>";
+    html += "<h2>4. Actualización de Firmware Web OTA (.bin)</h2>";
     html += "<label>Selecciona el archivo compilado firmware.bin:</label>";
     html += "<input type='file' name='update' accept='.bin' required>";
     html += "<button class='btn btn-ota' type='submit'>SUBIR Y ACTUALIZAR FIRMWARE AHORA</button></form>";
@@ -667,6 +682,19 @@ void UpdateManager::handleHttpSaveConfig() {
     if (_server.hasArg("isPass")) c.aprsIsPasscode = _server.arg("isPass").toInt();
     if (_server.hasArg("igBcn")) c.igateBeaconMode = (uint8_t)constrain(_server.arg("igBcn").toInt(), 0, 2);
     if (_server.hasArg("otaUrl")) strlcpy(c.otaServerUrl, _server.arg("otaUrl").c_str(), sizeof(c.otaServerUrl));
+
+    if (_server.hasArg("emgInt")) {
+        uint16_t ei = (uint16_t)_server.arg("emgInt").toInt();
+        if (ei == 60 || ei == 120 || ei == 180) c.emergIntervalSec = ei;
+    }
+    if (_server.hasArg("emgMsg")) c.emergSendDirectMsg = (_server.arg("emgMsg").toInt() == 1);
+    if (_server.hasArg("emgDst")) {
+        String dst = _server.arg("emgDst");
+        dst.trim();
+        dst.toUpperCase();
+        strlcpy(c.emergMsgDest, dst.c_str(), sizeof(c.emergMsgDest));
+    }
+    if (_server.hasArg("emgSnd")) c.emergSoundAlert = (_server.arg("emgSnd").toInt() == 1);
 
     Aprs.saveConfig();
     Ui.applyDisplayHardware();

@@ -27,7 +27,8 @@ enum KeyboardTarget : uint8_t {
     KB_CFG_WIFI_PASS,
     KB_CFG_APRS_SERVER,
     KB_CFG_APRS_PASSCODE,
-    KB_CFG_OTA_URL
+    KB_CFG_OTA_URL,
+    KB_CFG_EMERG_DEST
 };
 
 class UiManager {
@@ -47,10 +48,17 @@ private:
     CST820Touch _touch;
 
     UiTab _currentTab = TAB_DASHBOARD;
-    uint8_t _cfgPage = 0; // 0=Modo/Estación, 1=Radio/Baliza, 2=WiFi/IGate, 3=SD/OTA, 4=Sensores WX, 5=Créditos/Versión
+    uint8_t _cfgPage = 0; // 0=Modo/Estación, 1=Radio/Baliza, 2=WiFi/IGate, 3=SD/OTA, 4=Sensores WX, 5=SOS/Emergencia, 6=Créditos/Versión
     bool _needsFullRedraw = true;
     uint32_t _lastDynamicUpdateMs = 0;
     uint32_t _lastTouchMs = 0;
+
+    // Diálogos modales de Emergencia / SOS (Modo Tracker)
+    bool _showEmergModal = false;
+    uint8_t _emergConfirmStep = 0; // 0=1/3, 1=2/3, 2=3/3
+    uint32_t _emergModalTimerMs = 0;
+    uint8_t _selectedEmergType = 0;
+    bool _showCancelModal = false;
 
     // Estado de redacción de mensajes
     char _composeTo[12] = "LU4HNE-9";
@@ -80,6 +88,12 @@ private:
     void drawMessages(bool fullRedraw);
     void drawStations(bool fullRedraw);
     void drawConfig(bool fullRedraw);
+
+    // Diálogos modales SOS / Cancelación
+    void drawEmergConfirmModal();
+    void drawEmergCancelModal();
+    void handleEmergConfirmTouch(uint16_t tx, uint16_t ty);
+    void handleEmergCancelTouch(uint16_t tx, uint16_t ty);
 
     // Teclado QWERTY en pantalla
     void openKeyboard(KeyboardTarget target, const char* title, const char* initialVal, uint8_t maxLen);

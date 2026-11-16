@@ -159,7 +159,37 @@ void UiManager::update() {
         }
     }
 
-    // 2. Si el teclado está abierto, solo redibujar cuando sea necesario
+    // 2. Modales de emergencia / cancelación / teclado
+    if (_showEmergModal) {
+        if (millis() - _emergModalTimerMs > 5000) {
+            // Timeout de 5 segundos sin tocar: se cancela y cierra solo
+            _showEmergModal = false;
+            _emergConfirmStep = 0;
+            _needsFullRedraw = true;
+        } else {
+            // Actualizar barra regresiva de 5 segundos
+            uint32_t elapsed = millis() - _emergModalTimerMs;
+            int barW = 276;
+            int remW = (int)(((5000 - elapsed) * barW) / 5000);
+            if (remW < 0) remW = 0;
+            _tft.fillRect(22, 154, remW, 8, (elapsed < 3000) ? COL_ORANGE : COL_RED);
+            _tft.fillRect(22 + remW, 154, barW - remW, 8, COL_BG);
+        }
+        if (_needsFullRedraw) {
+            drawEmergConfirmModal();
+            _needsFullRedraw = false;
+        }
+        return;
+    }
+
+    if (_showCancelModal) {
+        if (_needsFullRedraw) {
+            drawEmergCancelModal();
+            _needsFullRedraw = false;
+        }
+        return;
+    }
+
     if (_kbTarget != KB_NONE) {
         if (_needsFullRedraw) {
             drawKeyboard();
@@ -221,6 +251,13 @@ void UiManager::update() {
 
 void UiManager::drawTopBar() {
     AprsConfig& cfg = Aprs.config();
+    if (Aprs.isEmergencyActive()) {
+        _tft.fillRect(0, 0, 320, 22, COL_RED);
+        _tft.drawFastHLine(0, 22, 320, COL_WHITE);
+        _tft.setTextColor(COL_WHITE, COL_RED);
+        _tft.drawCentreString("*** SOS EMERGENCIA ACTIVA ***", 160, 3, 2);
+        return;
+    }
     _tft.fillRect(0, 0, 320, 22, COL_HEADER);
     _tft.drawFastHLine(0, 22, 320, COL_BORDER);
 
@@ -322,6 +359,68 @@ void UiManager::drawCurrentTab(bool fullRedraw) {
 void UiManager::drawDashboard(bool fullRedraw) {
     AprsConfig& cfg = Aprs.config();
 
+    if (Aprs.isEmergencyActive()) {
+        const EmergencyState& emg = Aprs.getEmergencyState();
+        uint32_t elapsedSec = (millis() - emg.startTimeMs) / 1000UL;
+        uint32_t mm = elapsedSec / 60;
+        uint32_t ss = elapsedSec % 60;
+
+        if (fullRedraw) {
+            // Tarjeta Superior (y=28..94): Alerta SOS y Estado
+            _tft.fillRoundRect(6, 28, 308, 66, 4, 0x4800);
+            _tft.drawRoundRect(6, 28, 308, 66, 4, COL_RED);
+
+            // Tarjeta Central (y=98..164): Detalles de la emergencia
+            _tft.fillRoundRect(6, 98, 308, 66, 4, COL_CARD);
+            _tft.drawRoundRect(6, 98, 308, 66, 4, COL_BORDER);
+
+            // Botón inferior grande (y=170..208): CANCELAR EMERGENCIA
+            _tft.fillRoundRect(6, 170, 308, 38, 4, COL_RED);
+            _tft.drawRoundRect(6, 170, 308, 38, 4, COL_WHITE);
+            _tft.setTextColor(COL_WHITE, COL_RED);
+            _tft.drawCentreString(">>> CANCELAR EMERGENCIA <<<", 160, 180, 2);
+        }
+
+        // Datos dinámicos en Tarjeta Superior
+        _tft.setTextColor(COL_WHITE, 0x4800);
+        char titleBuf[48];
+        snprintf(titleBuf, sizeof(titleBuf), "ALERTA: %s", Aprs.getEmergencyTypeStr(emg.type));
+        _tft.drawString(titleBuf, 12, 32, 2);
+
+        char posBuf[48];
+        snprintf(posBuf, sizeof(posBuf), "Pos: %.4f, %.4f (%dm)",
+                 Aprs.getCurrentLat(), Aprs.getCurrentLon(), Aprs.getCurrentAlt());
+        _tft.setTextColor(COL_YELLOW, 0x4800);
+        _tft.drawString(posBuf, 12, 51, 2);
+
+        char timeBuf[48];
+        snprintf(timeBuf, sizeof(timeBuf), "Activo: %02lu:%02lu | Balizas: %u", mm, ss, emg.beaconCount);
+        _tft.setTextColor(COL_WHITE, 0x4800);
+        _tft.drawString(timeBuf, 12, 70, 2);
+
+        // Datos en Tarjeta Central
+        char info1[48], info2[48];
+        snprintf(info1, sizeof(info1), "Intervalo: cada %u s (Sig: %lu s)",
+                 cfg.emergIntervalSec, (unsigned long)Aprs.getSecondsUntilNextBeacon());
+        _tft.setTextColor(COL_ACCENT, COL_CARD);
+        _tft.drawString(info1, 12, 104, 2);
+
+        if (cfg.emergSendDirectMsg && strlen(cfg.emergMsgDest) > 0) {
+            snprintf(info2, sizeof(info2), "Msj Directo: %s | Sirena: %s",
+                     cfg.emergMsgDest, cfg.emergSoundAlert ? "ON" : "OFF");
+        } else {
+            snprintf(info2, sizeof(info2), "Msj Directo: NO | Sirena: %s",
+                     cfg.emergSoundAlert ? "ON" : "OFF");
+        }
+        _tft.setTextColor(COL_MUTED, COL_CARD);
+        _tft.drawString(info2, 12, 123, 2);
+
+        _tft.setTextColor(COL_GREEN, COL_CARD);
+        _tft.drawString("Transmision AX.25 RF activa (\\!)", 12, 142, 2);
+
+        return;
+    }
+
     if (fullRedraw) {
         // Tarjeta 1: Modo, Coordenadas y Estado de Estación / IGate
         _tft.fillRoundRect(6, 28, 198, 66, 4, COL_CARD);
@@ -342,27 +441,57 @@ void UiManager::drawDashboard(bool fullRedraw) {
         _tft.drawRoundRect(6, 130, 308, 42, 4, COL_BORDER);
 
         // Botones de acción rápida abajo (y = 176..207)
-        // [BALIZA AHORA] [TEST LOOPBACK] [AUTO BCN]
-        _tft.fillRoundRect(6, 176, 106, 31, 4, COL_GREEN);
-        _tft.setTextColor(COL_BG, COL_GREEN);
-        _tft.drawCentreString("TX BALIZA", 59, 184, 2);
+        if (cfg.stationMode == STATION_MODE_TRACKER) {
+            // Modo Tracker Móvil: 4 botones incluyendo [SOS]
+            _tft.fillRoundRect(4, 176, 74, 31, 4, COL_GREEN);
+            _tft.setTextColor(COL_BG, COL_GREEN);
+            _tft.drawCentreString("BALIZA", 41, 184, 2);
 
-        _tft.fillRoundRect(117, 176, 102, 31, 4, COL_ACCENT);
-        _tft.setTextColor(COL_BG, COL_ACCENT);
-        _tft.drawCentreString("LOOPBACK", 168, 184, 2);
+            _tft.fillRoundRect(82, 176, 74, 31, 4, COL_ACCENT);
+            _tft.setTextColor(COL_BG, COL_ACCENT);
+            _tft.drawCentreString("LOOP", 119, 184, 2);
+
+            _tft.fillRoundRect(238, 176, 78, 31, 4, 0x8000);
+            _tft.drawRoundRect(238, 176, 78, 31, 4, COL_RED);
+            _tft.setTextColor(COL_WHITE, 0x8000);
+            _tft.drawCentreString("SOS", 277, 184, 2);
+        } else {
+            // Modos Fijos / IGate: 3 botones tradicionales sin botón SOS
+            _tft.fillRoundRect(6, 176, 106, 31, 4, COL_GREEN);
+            _tft.setTextColor(COL_BG, COL_GREEN);
+            _tft.drawCentreString("TX BALIZA", 59, 184, 2);
+
+            _tft.fillRoundRect(117, 176, 102, 31, 4, COL_ACCENT);
+            _tft.setTextColor(COL_BG, COL_ACCENT);
+            _tft.drawCentreString("LOOPBACK", 168, 184, 2);
+        }
     }
 
-    // Botón AUTO BCN (puede cambiar de estado)
-    uint16_t autoBg = cfg.autoBeacon ? COL_ORANGE : COL_HEADER;
-    _tft.fillRoundRect(224, 176, 90, 31, 4, autoBg);
-    _tft.drawRoundRect(224, 176, 90, 31, 4, COL_BORDER);
-    _tft.setTextColor(cfg.autoBeacon ? COL_BG : COL_WHITE, autoBg);
-    if (cfg.autoBeacon) {
-        char bcnBuf[16];
-        snprintf(bcnBuf, sizeof(bcnBuf), "AUTO %lus", (unsigned long)Aprs.getSecondsUntilNextBeacon());
-        _tft.drawCentreString(bcnBuf, 269, 184, 2);
+    // Botón AUTO BCN (puede cambiar de estado dinámicamente)
+    if (cfg.stationMode == STATION_MODE_TRACKER) {
+        uint16_t autoBg = cfg.autoBeacon ? COL_ORANGE : COL_HEADER;
+        _tft.fillRoundRect(160, 176, 74, 31, 4, autoBg);
+        _tft.drawRoundRect(160, 176, 74, 31, 4, COL_BORDER);
+        _tft.setTextColor(cfg.autoBeacon ? COL_BG : COL_WHITE, autoBg);
+        if (cfg.autoBeacon) {
+            char bcnBuf[12];
+            snprintf(bcnBuf, sizeof(bcnBuf), "A:%lus", (unsigned long)Aprs.getSecondsUntilNextBeacon());
+            _tft.drawCentreString(bcnBuf, 197, 184, 2);
+        } else {
+            _tft.drawCentreString("AUTO:OFF", 197, 184, 2);
+        }
     } else {
-        _tft.drawCentreString("AUTO: OFF", 269, 184, 2);
+        uint16_t autoBg = cfg.autoBeacon ? COL_ORANGE : COL_HEADER;
+        _tft.fillRoundRect(224, 176, 90, 31, 4, autoBg);
+        _tft.drawRoundRect(224, 176, 90, 31, 4, COL_BORDER);
+        _tft.setTextColor(cfg.autoBeacon ? COL_BG : COL_WHITE, autoBg);
+        if (cfg.autoBeacon) {
+            char bcnBuf[16];
+            snprintf(bcnBuf, sizeof(bcnBuf), "AUTO %lus", (unsigned long)Aprs.getSecondsUntilNextBeacon());
+            _tft.drawCentreString(bcnBuf, 269, 184, 2);
+        } else {
+            _tft.drawCentreString("AUTO: OFF", 269, 184, 2);
+        }
     }
 
     // Datos de posición y modo en Tarjeta 1 (Tocar Tarjeta 1 cambia rápido Tracker <-> Fija+IGate)
@@ -649,21 +778,22 @@ void UiManager::drawStations(bool fullRedraw) {
 void UiManager::drawConfig(bool fullRedraw) {
     AprsConfig& cfg = Aprs.config();
 
-    static const char* const PAGE_TITLES[6] = {
-        "CONF 1/6: MODO Y ESTACION",
-        "CONF 2/6: RADIO Y BALIZA",
-        "CONF 3/6: WIFI E IGATE",
-        "CONF 4/6: SD Y WEB OTA",
-        "CONF 5/6: SENSORES CLIMA",
-        "CONF 6/6: CREDITOS Y VERSION"
+    static const char* const PAGE_TITLES[7] = {
+        "CONF 1/7: MODO Y ESTACION",
+        "CONF 2/7: RADIO Y BALIZA",
+        "CONF 3/7: WIFI E IGATE",
+        "CONF 4/7: SD Y WEB OTA",
+        "CONF 5/7: SENSORES CLIMA",
+        "CONF 6/7: SOS / EMERGENCIA",
+        "CONF 7/7: CREDITOS Y VERSION"
     };
 
     // Encabezado con selector de página y botón GUARDAR
     _tft.setTextColor(COL_ACCENT, COL_BG);
-    _tft.drawString(PAGE_TITLES[_cfgPage % 6], 6, 27, 2);
+    _tft.drawString(PAGE_TITLES[_cfgPage % 7], 6, 27, 2);
 
     char nextLbl[16];
-    snprintf(nextLbl, sizeof(nextLbl), "PAG %u/6 >", (_cfgPage % 6) + 1);
+    snprintf(nextLbl, sizeof(nextLbl), "PAG %u/7 >", (_cfgPage % 7) + 1);
     _tft.fillRoundRect(184, 25, 66, 22, 3, COL_HEADER);
     _tft.drawRoundRect(184, 25, 66, 22, 3, COL_BORDER);
     _tft.setTextColor(COL_WHITE, COL_HEADER);
@@ -992,8 +1122,38 @@ void UiManager::drawConfig(bool fullRedraw) {
         _tft.setTextColor(COL_BG, COL_ACCENT);
         _tft.drawCentreString("DETECTAR", 269, 182, 2);
 
+    } else if (_cfgPage == 5) {
+        // Página 6: Parámetros del Aviso de Emergencia (SOS) Exclusivo Tracker
+        // Fila 1 (y=52..86): Intervalo de Baliza SOS (60s / 120s / 180s)
+        _tft.fillRoundRect(6, 52, 308, 34, 3, COL_CARD);
+        _tft.drawRoundRect(6, 52, 308, 34, 3, COL_BORDER);
+        char intBuf[36];
+        snprintf(intBuf, sizeof(intBuf), "Intervalo Baliza SOS: %u s", cfg.emergIntervalSec);
+        _tft.setTextColor(COL_YELLOW, COL_CARD);
+        _tft.drawCentreString(intBuf, 160, 61, 2);
+
+        // Fila 2 (y=91..125): Mensaje Directo APRS SOS (SI / NO)
+        _tft.fillRoundRect(6, 91, 308, 34, 3, COL_CARD);
+        _tft.drawRoundRect(6, 91, 308, 34, 3, COL_BORDER);
+        _tft.setTextColor(cfg.emergSendDirectMsg ? COL_GREEN : COL_MUTED, COL_CARD);
+        _tft.drawCentreString(cfg.emergSendDirectMsg ? "Mensaje APRS Directo: SI" : "Mensaje APRS Directo: NO", 160, 100, 2);
+
+        // Fila 3 (y=130..164): Indicativo Destino del Mensaje Directo
+        _tft.fillRoundRect(6, 130, 308, 34, 3, COL_CARD);
+        _tft.drawRoundRect(6, 130, 308, 34, 3, COL_BORDER);
+        _tft.setTextColor(COL_MUTED, COL_CARD);
+        _tft.drawString("Destinatario:", 12, 139, 2);
+        _tft.setTextColor(COL_WHITE, COL_CARD);
+        _tft.drawString(strlen(cfg.emergMsgDest) > 0 ? cfg.emergMsgDest : "(Toca para escribir)", 116, 139, 2);
+
+        // Fila 4 (y=169..205): Alerta Sonora Parlante Onboard (IO26)
+        _tft.fillRoundRect(6, 169, 308, 36, 3, COL_CARD);
+        _tft.drawRoundRect(6, 169, 308, 36, 3, COL_BORDER);
+        _tft.setTextColor(cfg.emergSoundAlert ? COL_ORANGE : COL_MUTED, COL_CARD);
+        _tft.drawCentreString(cfg.emergSoundAlert ? "Alerta Sonora Parlante (IO26): SI" : "Alerta Sonora Parlante (IO26): NO", 160, 179, 2);
+
     } else {
-        // Página 6 (Siempre la última): Créditos del Proyecto y Versión Instalada (About)
+        // Página 7 (Siempre la última): Créditos del Proyecto y Versión Instalada (About)
         // Tarjeta 1 (y=52..92): Autor y Créditos
         _tft.fillRoundRect(6, 52, 308, 40, 4, COL_CARD);
         _tft.drawRoundRect(6, 52, 308, 40, 4, COL_ACCENT);
@@ -1257,12 +1417,24 @@ void UiManager::commitKeyboardValue() {
         case KB_CFG_OTA_URL:
             strlcpy(cfg.otaServerUrl, _kbBuffer, sizeof(cfg.otaServerUrl));
             break;
+        case KB_CFG_EMERG_DEST:
+            strlcpy(cfg.emergMsgDest, _kbBuffer, sizeof(cfg.emergMsgDest));
+            for (int i = 0; cfg.emergMsgDest[i]; i++) cfg.emergMsgDest[i] = (char)toupper((unsigned char)cfg.emergMsgDest[i]);
+            break;
         default:
             break;
     }
 }
 
 void UiManager::handleTouch(uint16_t tx, uint16_t ty) {
+    if (_showEmergModal) {
+        handleEmergConfirmTouch(tx, ty);
+        return;
+    }
+    if (_showCancelModal) {
+        handleEmergCancelTouch(tx, ty);
+        return;
+    }
     if (_kbTarget != KB_NONE) {
         handleKeyboardTouch(tx, ty);
         return;
@@ -1292,6 +1464,14 @@ void UiManager::handleTouch(uint16_t tx, uint16_t ty) {
 }
 
 void UiManager::handleDashboardTouch(uint16_t tx, uint16_t ty) {
+    if (Aprs.isEmergencyActive()) {
+        if (ty >= 166 && ty <= 212) {
+            _showCancelModal = true;
+            _needsFullRedraw = true;
+        }
+        return;
+    }
+
     // Tocar Tarjeta 1 (arriba a la izquierda) permite alternar rápido entre Tracker y Estación Fija + IGate
     if (ty >= 28 && ty <= 94 && tx >= 6 && tx <= 204) {
         AprsConfig& cfg = Aprs.config();
@@ -1302,23 +1482,51 @@ void UiManager::handleDashboardTouch(uint16_t tx, uint16_t ty) {
         return;
     }
 
+    AprsConfig& cfg = Aprs.config();
     if (ty >= 174 && ty <= 208) {
-        if (tx >= 6 && tx <= 112) {
-            // [TX BALIZA] por RF y/o APRS-IS
-            showToast("Enviando Baliza APRS...", COL_RED);
-            Aprs.sendPositionBeacon(false);
-            _needsFullRedraw = true;
-        } else if (tx >= 117 && tx <= 219) {
-            // [LOOPBACK] codifica y decodifica internamente + DAC
-            showToast("Ejecutando Test Loopback AX.25...", COL_ACCENT);
-            Aprs.sendPositionBeacon(true);
-            delay(80);
-            Aprs.update();
-            _needsFullRedraw = true;
-        } else if (tx >= 224) {
-            // [AUTO BCN ON/OFF]
-            Aprs.config().autoBeacon = !Aprs.config().autoBeacon;
-            _needsFullRedraw = true;
+        if (cfg.stationMode == STATION_MODE_TRACKER) {
+            if (tx >= 4 && tx <= 78) {
+                // [BALIZA]
+                showToast("Enviando Baliza APRS...", COL_RED);
+                Aprs.sendPositionBeacon(false);
+                _needsFullRedraw = true;
+            } else if (tx >= 82 && tx <= 156) {
+                // [LOOP]
+                showToast("Ejecutando Test Loopback AX.25...", COL_ACCENT);
+                Aprs.sendPositionBeacon(true);
+                delay(80);
+                Aprs.update();
+                _needsFullRedraw = true;
+            } else if (tx >= 160 && tx <= 234) {
+                // [AUTO]
+                cfg.autoBeacon = !cfg.autoBeacon;
+                _needsFullRedraw = true;
+            } else if (tx >= 238) {
+                // [SOS]
+                _showEmergModal = true;
+                _emergConfirmStep = 0;
+                _emergModalTimerMs = millis();
+                _selectedEmergType = EMERG_TYPE_SOS;
+                _needsFullRedraw = true;
+            }
+        } else {
+            if (tx >= 6 && tx <= 112) {
+                // [TX BALIZA] por RF y/o APRS-IS
+                showToast("Enviando Baliza APRS...", COL_RED);
+                Aprs.sendPositionBeacon(false);
+                _needsFullRedraw = true;
+            } else if (tx >= 117 && tx <= 219) {
+                // [LOOPBACK] codifica y decodifica internamente + DAC
+                showToast("Ejecutando Test Loopback AX.25...", COL_ACCENT);
+                Aprs.sendPositionBeacon(true);
+                delay(80);
+                Aprs.update();
+                _needsFullRedraw = true;
+            } else if (tx >= 224) {
+                // [AUTO BCN ON/OFF]
+                cfg.autoBeacon = !cfg.autoBeacon;
+                _needsFullRedraw = true;
+            }
         }
     }
 }
@@ -1398,10 +1606,10 @@ void UiManager::handleStationsTouch(uint16_t tx, uint16_t ty) {
 void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
     AprsConfig& cfg = Aprs.config();
 
-    // Botones de barra superior de Config: [PAG x/6] y [GUARDAR]
+    // Botones de barra superior de Config: [PAG x/7] y [GUARDAR]
     if (ty >= 24 && ty <= 48) {
         if (tx >= 180 && tx <= 251) {
-            _cfgPage = (_cfgPage + 1) % 6;
+            _cfgPage = (_cfgPage + 1) % 7;
             _needsFullRedraw = true;
             return;
         }
@@ -1638,8 +1846,36 @@ void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
             return;
         }
 
+    } else if (_cfgPage == 5) {
+        // Página 6: Parámetros del Aviso de Emergencia (SOS)
+        // Fila 1 (y=52..86): Intervalo Baliza SOS (ciclo 60s -> 120s -> 180s)
+        if (ty >= 52 && ty <= 86) {
+            if (cfg.emergIntervalSec == 60) cfg.emergIntervalSec = 120;
+            else if (cfg.emergIntervalSec == 120) cfg.emergIntervalSec = 180;
+            else cfg.emergIntervalSec = 60;
+            _needsFullRedraw = true;
+            return;
+        }
+        // Fila 2 (y=91..125): Mensaje Directo SI / NO
+        if (ty >= 91 && ty <= 125) {
+            cfg.emergSendDirectMsg = !cfg.emergSendDirectMsg;
+            _needsFullRedraw = true;
+            return;
+        }
+        // Fila 3 (y=130..164): Destinatario Mensaje Directo
+        if (ty >= 130 && ty <= 164) {
+            openKeyboard(KB_CFG_EMERG_DEST, "DESTINATARIO SOS (CALLSIGN):", cfg.emergMsgDest, 9);
+            return;
+        }
+        // Fila 4 (y=169..205): Alerta Sonora Parlante
+        if (ty >= 169 && ty <= 205) {
+            cfg.emergSoundAlert = !cfg.emergSoundAlert;
+            _needsFullRedraw = true;
+            return;
+        }
+
     } else {
-        // Página 6 (Siempre la última): Créditos, Versión, Brillo LED/TFT y Reinicio
+        // Página 7 (Siempre la última): Créditos, Versión, Brillo LED/TFT y Reinicio
         if (ty >= 176 && ty <= 208) {
             if (tx < 106) {
                 cfg.ledBrightness = (cfg.ledBrightness + 1) % 3; // 1 (Tenue) -> 2 (Medio) -> 0 (Off)
@@ -1659,6 +1895,141 @@ void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
                 delay(600);
                 ESP.restart();
             }
+            return;
+        }
+    }
+}
+
+void UiManager::drawEmergConfirmModal() {
+    // Fondo oscurecido con marco de advertencia
+    _tft.fillRoundRect(8, 16, 304, 206, 8, COL_BG);
+    _tft.drawRoundRect(8, 16, 304, 206, 8, COL_RED);
+    _tft.drawRoundRect(9, 17, 302, 204, 7, COL_RED);
+
+    // Título y advertencia
+    _tft.setTextColor(COL_YELLOW, COL_BG);
+    _tft.drawCentreString("! ADVERTENCIA: AVISO DE SOS !", 160, 22, 2);
+    _tft.setTextColor(COL_WHITE, COL_BG);
+    _tft.drawCentreString("Emitira baliza APRS (\\!) de auxilio.", 160, 40, 2);
+
+    // 4 Botones de selección de motivo (y=58..88)
+    const char* types[4] = { "SOS Gen", "Medico", "Vehiculo", "Extravio" };
+    for (int i = 0; i < 4; i++) {
+        int bx = 14 + (i * 73);
+        bool sel = (_selectedEmergType == i);
+        uint16_t bg = sel ? COL_RED : COL_CARD;
+        uint16_t border = sel ? COL_WHITE : COL_BORDER;
+        _tft.fillRoundRect(bx, 58, 69, 28, 4, bg);
+        _tft.drawRoundRect(bx, 58, 69, 28, 4, border);
+        _tft.setTextColor(sel ? COL_WHITE : COL_MUTED, bg);
+        _tft.drawCentreString(types[i], bx + 34, 64, 2);
+    }
+
+    // Botón de seguridad progresivo en 3 toques (y=94..146)
+    uint16_t btnBg = (_emergConfirmStep == 0) ? COL_ORANGE :
+                     (_emergConfirmStep == 1) ? 0xFD60 : COL_RED;
+    const char* btnTxt = (_emergConfirmStep == 0) ? "[ 1/3 CONFIRMAR EMERGENCIA ]" :
+                         (_emergConfirmStep == 1) ? "[ 2/3 PRESIONA OTRA VEZ ]" :
+                                                   ">>> 3/3 ACTIVAR SOS AHORA <<<";
+
+    _tft.fillRoundRect(18, 94, 284, 50, 6, btnBg);
+    _tft.drawRoundRect(18, 94, 284, 50, 6, COL_WHITE);
+    _tft.setTextColor(COL_WHITE, btnBg);
+    _tft.drawCentreString(btnTxt, 160, 110, 2);
+
+    // Barra de tiempo regresivo (y=154..162, 5 segundos)
+    uint32_t elapsed = millis() - _emergModalTimerMs;
+    int barW = 276;
+    int remW = (int)(((5000 - elapsed) * barW) / 5000);
+    if (remW < 0) remW = 0;
+    _tft.fillRect(22, 154, remW, 8, (elapsed < 3000) ? COL_ORANGE : COL_RED);
+    _tft.fillRect(22 + remW, 154, barW - remW, 8, COL_BG);
+    _tft.drawRect(21, 153, barW + 2, 10, COL_BORDER);
+
+    // Botón Salir / Cancelar (y=172..206)
+    _tft.fillRoundRect(70, 172, 180, 32, 4, COL_HEADER);
+    _tft.drawRoundRect(70, 172, 180, 32, 4, COL_BORDER);
+    _tft.setTextColor(COL_WHITE, COL_HEADER);
+    _tft.drawCentreString("SALIR / CANCELAR", 160, 180, 2);
+}
+
+void UiManager::handleEmergConfirmTouch(uint16_t tx, uint16_t ty) {
+    // 1. Selector de motivo (y=58..88)
+    if (ty >= 58 && ty <= 88) {
+        for (int i = 0; i < 4; i++) {
+            int bx = 14 + (i * 73);
+            if (tx >= bx && tx <= bx + 69) {
+                _selectedEmergType = i;
+                _emergModalTimerMs = millis(); // Renueva timeout
+                _needsFullRedraw = true;
+                return;
+            }
+        }
+    }
+
+    // 2. Botón de seguridad progresivo (y=94..146)
+    if (ty >= 94 && ty <= 146 && tx >= 18 && tx <= 302) {
+        _emergConfirmStep++;
+        _emergModalTimerMs = millis(); // Renueva 5 segundos para el siguiente toque
+        if (_emergConfirmStep >= 3) {
+            _showEmergModal = false;
+            _emergConfirmStep = 0;
+            Aprs.triggerEmergency(_selectedEmergType);
+            _needsFullRedraw = true;
+            showToast("! EMERGENCIA SOS TRANSMITIDA !", COL_RED);
+        } else {
+            _needsFullRedraw = true;
+        }
+        return;
+    }
+
+    // 3. Botón Salir / Cancelar (y=172..206)
+    if (ty >= 172 && ty <= 206 && tx >= 70 && tx <= 250) {
+        _showEmergModal = false;
+        _emergConfirmStep = 0;
+        _needsFullRedraw = true;
+        return;
+    }
+}
+
+void UiManager::drawEmergCancelModal() {
+    _tft.fillRoundRect(16, 36, 288, 168, 8, COL_BG);
+    _tft.drawRoundRect(16, 36, 288, 168, 8, COL_BORDER);
+    _tft.drawRoundRect(17, 37, 286, 166, 7, COL_BORDER);
+
+    _tft.setTextColor(COL_YELLOW, COL_BG);
+    _tft.drawCentreString("¿CANCELAR AVISO DE SOS?", 160, 48, 2);
+
+    _tft.setTextColor(COL_WHITE, COL_BG);
+    _tft.drawCentreString("Se transmitira baliza APRS de", 160, 72, 2);
+    _tft.drawCentreString("resolucion y situacion normalizada.", 160, 92, 2);
+
+    // Botón Confirmar Cancelación (y=130..174, x=26..146)
+    _tft.fillRoundRect(26, 130, 120, 44, 5, COL_GREEN);
+    _tft.drawRoundRect(26, 130, 120, 44, 5, COL_WHITE);
+    _tft.setTextColor(COL_BG, COL_GREEN);
+    _tft.drawCentreString("CONFIRMAR", 86, 142, 2);
+
+    // Botón Volver / Seguir en Emergencia (y=130..174, x=174..294)
+    _tft.fillRoundRect(174, 130, 120, 44, 5, COL_RED);
+    _tft.drawRoundRect(174, 130, 120, 44, 5, COL_WHITE);
+    _tft.setTextColor(COL_WHITE, COL_RED);
+    _tft.drawCentreString("VOLVER", 234, 142, 2);
+}
+
+void UiManager::handleEmergCancelTouch(uint16_t tx, uint16_t ty) {
+    if (ty >= 130 && ty <= 174) {
+        if (tx >= 26 && tx <= 146) {
+            // Confirmar Cancelación
+            _showCancelModal = false;
+            Aprs.cancelEmergency();
+            _needsFullRedraw = true;
+            showToast("Aviso SOS Cancelado y Normalizado", COL_GREEN);
+            return;
+        } else if (tx >= 174 && tx <= 294) {
+            // Volver
+            _showCancelModal = false;
+            _needsFullRedraw = true;
             return;
         }
     }

@@ -2,7 +2,7 @@
 
 #include <Arduino.h>
 
-#define FIRMWARE_VERSION    "1.5.2"
+#define FIRMWARE_VERSION    "1.6.0"
 
 // ============================================================================
 // PLACA: ESP32 CYD (Soporte Dual: Modelo ST7789 1-USB y Modelo ILI9341)
@@ -124,6 +124,21 @@ enum SensorBeaconMode : uint8_t {
     SENSOR_BCN_OFF     = 2  // No incluir lecturas en la baliza APRS
 };
 
+enum EmergencyType : uint8_t {
+    EMERG_TYPE_SOS       = 0, // "SOS GENERAL / AUXILIO"
+    EMERG_TYPE_MEDICAL   = 1, // "EMERGENCIA MEDICA"
+    EMERG_TYPE_VEHICLE   = 2, // "AUXILIO MECANICO / VEHICULO"
+    EMERG_TYPE_LOST      = 3  // "EXTRAVIO / RESCATE"
+};
+
+struct EmergencyState {
+    bool     active;
+    uint8_t  type;
+    uint32_t startTimeMs;
+    uint32_t lastBeaconMs;
+    uint16_t beaconCount;
+};
+
 struct AprsConfig {
     uint8_t boardModel;     // BOARD_MODEL_ILI9341 o BOARD_MODEL_ST7789
     bool displayInvert;     // Inversión de color del panel (útil en variantes ST7789 / IPS)
@@ -174,6 +189,12 @@ struct AprsConfig {
     uint8_t sensorBeaconMode; // SensorBeaconMode (por defecto SENSOR_BCN_COMMENT)
     float   tempOffsetC;      // Calibración de temperatura en °C
     float   humOffsetPct;     // Calibración de humedad en %
+
+    // --- Aviso de Emergencia (SOS) Exclusivo para Modo Tracker ---
+    uint16_t emergIntervalSec;   // Intervalo baliza SOS en seg (120s por defecto; 60, 120, 180)
+    bool     emergSendDirectMsg; // true = Enviar además mensaje APRS directo
+    char     emergMsgDest[10];   // Indicativo destinatario (ej. "LU4HNE")
+    bool     emergSoundAlert;    // true = Alerta sonora intermitente en altavoz
 };
 
 // Límites de almacenamiento en RAM para la interfaz gráfica

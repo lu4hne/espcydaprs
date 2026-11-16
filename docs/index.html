@@ -287,7 +287,7 @@
       <button id="btnFull" class="flash-btn primary" onclick="startFlash('full')">
         <span class="btn-tag green">Recomendado</span>
         <span class="btn-name">Instalación Completa (Desde Cero)</span>
-        <span class="btn-desc">Graba el firmware completo v1.5.2 (Bootloader + Particiones + App en 0x0000). Ideal para placas nuevas o recién compradas.</span>
+        <span class="btn-desc">Graba el firmware completo v1.6.0 (Bootloader + Particiones + App en 0x0000). Ideal para placas nuevas o recién compradas.</span>
       </button>
 
       <!-- BOTÓN ACTUALIZAR -->
@@ -373,7 +373,7 @@ Navegadores soportados: Google Chrome, Microsoft Edge, Brave u Opera (con WebSer
   <footer>
     Proyecto ESP32 CYD APRS Transceiver &bull; Desarrollado por <strong>LU4HNE</strong> &bull;
     <a href="https://github.com/lu4hne/espcydaprs" target="_blank" rel="noopener">Ver Código en GitHub</a> &bull;
-    Firmware Versión <strong>v1.5.2</strong>
+    Firmware Versión <strong>v1.6.0</strong>
   </footer>
 </div>
 
@@ -428,11 +428,11 @@ Navegadores soportados: Google Chrome, Microsoft Edge, Brave u Opera (con WebSer
     if (mode === "full") {
       binUrl = "firmware/ESP32_CYD_APRS_FULL.bin";
       offset = 0x0000;
-      fileName = "ESP32_CYD_APRS_FULL.bin (v1.5.2 Completo)";
+      fileName = "ESP32_CYD_APRS_FULL.bin (v1.6.0 Completo)";
     } else if (mode === "update") {
       binUrl = "firmware/update.bin";
       offset = 0x10000;
-      fileName = "update.bin (v1.5.2 App Offset 0x10000)";
+      fileName = "update.bin (v1.6.0 App Offset 0x10000)";
     } else if (mode === "custom") {
       const fileInput = document.getElementById("localBinFile");
       if (!fileInput.files || fileInput.files.length === 0) {

@@ -100,6 +100,15 @@ public:
     bool sendTextMessage(const char* destCallsign, const char* messageText, bool loopbackTest = false);
     bool sendCustomStatus(const char* statusText, bool loopbackTest = false);
 
+    // Control de Emergencia / SOS (Exclusivo para MODO TRACKER)
+    bool isEmergencyActive() const { return _emergState.active; }
+    const EmergencyState& getEmergencyState() const { return _emergState; }
+    void triggerEmergency(uint8_t emergType);
+    void cancelEmergency();
+    bool sendEmergencyBeacon(bool loopbackTest = false);
+    bool sendEmergencyCancelBeacon(bool loopbackTest = false);
+    static const char* getEmergencyTypeStr(uint8_t type);
+
     // Recepción de línea TNC2 desde APRS-IS (para mensajes entrantes o IGate IS->RF)
     bool handleAprsIsIncomingLine(const char* tnc2Line);
 
@@ -132,6 +141,8 @@ public:
 private:
     AprsConfig _cfg;
     GpsState _gpsState;
+    EmergencyState _emergState;
+    uint32_t _lastEmergSoundMs = 0;
 
     DecodedPacket _packetLog[MAX_PACKET_LOG];
     int _packetHead = 0;

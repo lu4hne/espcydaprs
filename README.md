@@ -1,4 +1,4 @@
-# ESP32 CYD (`ESP32-2432S024C` / `ESP32-2432S028R`) — Transceptor APRS 1200 bps / Tracker / Estación Fija + IGate + Estación Meteorológica WX (`v1.5.2`)
+# ESP32 CYD (`ESP32-2432S024C` / `ESP32-2432S028R`) — Transceptor APRS 1200 bps / Tracker / Estación Fija + IGate + Estación Meteorológica WX (`v1.6.0`)
 
 Aplicación completa de **codificación y decodificación APRS a 1200 baudios (AFSK Bell 202 / AX.25)** con **IGate APRS-IS bidireccional por WiFi**, **telemetría meteorológica (`BMP280 / BME280 / AHT20 / DHT22 / DHT11`)** y **actualización de firmware por MicroSD y Web OTA**, diseñada para la familia de placas **ESP32 Cheap Yellow Display (CYD)** tanto en sus variantes con controlador **`ILI9341`** como **`ST7789` (1-USB)** y paneles táctiles **`CST820` (I2C)** o **`XPT2046` (SPI dedicado o compartido)**.
 
@@ -14,10 +14,11 @@ Permite conectar directamente un handy o base **Yaesu** o **Baofeng** (en VHF `1
 
 ## Características Principales
 
-* **3 Modos de Operación Configurables en Pantalla o vía Web (`CONF 1/6` o toque rápido en `PANEL`):**
+* **3 Modos de Operación Configurables en Pantalla o vía Web (`CONF 1/7` o toque rápido en `PANEL`):**
   1. **`MODO TRACKER (Móvil / Portátil RF)`:**
      * Diseñado para operación vehicular o portátil con **GPS Externo NMEA** (`UART2`) o posición fija, SSID sugerido `-9` / `-7`, símbolo de vehículo (`/>`) o handy (`/[`).
      * Transmite balizas periódicas por RF (`1200 bps AFSK`) manteniendo el WiFi apagado para ahorrar batería.
+     * **Acceso Exclusivo al Botón `[SOS]`:** En la barra inferior del panel se añade el botón de emergencia rápida.
   2. **`MODO ESTACIÓN FIJA + IGATE (RF <-> APRS-IS)`:**
      * Conecta por WiFi al servidor **APRS-IS** (por defecto `samerica.aprs2.net:14580` o `rotate.aprs2.net:14580`) con filtro activo de radio y mensajería (`filter r/lat/lon/100 g/CALL* b/CALL*`).
      * **Cálculo automático de Passcode APRS-IS** a partir de tu indicativo (`CALLSIGN`), con opción de ingreso manual.
@@ -26,18 +27,28 @@ Permite conectar directamente un handy o base **Yaesu** o **Baofeng** (en VHF `1
      * **Baliza de Estación Fija Configurable:** Permite emitir tu posición fija por **`RF + APRS-IS`**, **`SOLO APRS-IS (Internet)`** o **`SOLO RF`**.
   3. **`MODO ESTACIÓN FIJA SOLO RF / DIGIPEATER`:**
      * Ideal para estaciones base o repetidoras de campaña sin acceso a Internet, con soporte para **Digipeater Fill-in `WIDE1-1`**.
-* **Sensores Meteorológicos en Configuración (`CONF 5/6: SENSORES CLIMA` — `BMP280 / BME280 / AHT20 / DHT22 / DHT11`):**
+* **Sistema de Aviso de Emergencia APRS (`\!` — SOS / Auxilio Exclusivo en Modo Tracker):**
+  * **Restricción Estricta de Modo:** Disponible **únicamente en `MODO TRACKER`** (el botón `[SOS]` permanece completamente oculto e inactivo en modo Estación Fija e IGate). Si se conmuta a otro modo con una emergencia activa, se cancela y normaliza automáticamente.
+  * **Mecanismo Anti-Error de 3 Toques con Timeout:** Al presionar `[SOS]` se despliega un diálogo modal de advertencia que requiere tocar un botón de confirmación **3 veces consecutivas** dentro de una ventana de **5 segundos** (mostrada con barra regresiva). Si no se completan los 3 toques dentro del límite, el diálogo expira y se cierra sin transmitir nada.
+  * **4 Categorías de Incidente:** Selector táctil para indicar el tipo de auxilio: **`SOS Gen`**, **`Médico`**, **`Vehículo`** o **`Extravío`**.
+  * **Protocolo Oficial APRS 1.0.1 (`\!`):** Emite balizas periódicas con tabla `\` y símbolo `!` (**`\!`**), activando de inmediato el octágono rojo de emergencia en plataformas como `aprs.fi` y `APRS-IS`, incluyendo coordenadas GPS/fijas, altitud y comentario descriptivo del incidente.
+  * **Cancelación Inmediata con Trama de Resolución:** Pantalla dedicada de alerta activa con botón destacado **`[CANCELAR EMERGENCIA]`**, que al confirmarse transmite instantáneamente una baliza de resolución (`[EMERGENCIA CANCELADA - SITUACION NORMALIZADA]`) restaurando el símbolo original del operador.
+  * **Configuración Avanzada (`CONF 6/7: SOS / EMERGENCIA` y Portal Web):**
+    * **Intervalo de Baliza SOS:** `120 s` por defecto (opciones: `60 s`, `120 s`, `180 s`).
+    * **Mensaje Directo APRS SOS:** Opcional (`SI` / `NO`) con indicativo destinatario configurable (ej. para avisar directamente a tu estación base o grupo de rescate).
+    * **Alerta Sonora Parlante (`GPIO 26`):** Opcional (`SI` / `NO`), emite una sirena de 2 tonos cada 15 segundos por el altavoz integrado (silenciosa por defecto para no agotar la batería).
+* **Sensores Meteorológicos en Configuración (`CONF 5/7: SENSORES CLIMA` — `BMP280 / BME280 / AHT20 / DHT22 / DHT11`):**
   * Detección automática e instantánea de sensores **I2C (`BMP280`, `BME280`, `AHT10/AHT20`)** y **1-Wire (`DHT22`, `DHT11`)** sin librerías externas pesadas.
   * **Omisión Automática si no hay Sensor Conectado:** Si el sensor está desactivado o físicamente desconectado, **no se incluye ningún dato meteorológico en las balizas APRS** (la baliza sale limpia con tu comentario habitual).
   * **3 Modos de Inclusión en Baliza APRS:**
     1. **`COMENTARIO`:** Añade al final de tu comentario las lecturas disponibles (ej: `24.5C 48% 1013hPa` en `BME280` o `24.5C 1013hPa` en `BMP280`).
     2. **`WX OFICIAL (/_)`:** Formatea la baliza con el estándar meteorológico APRS (`_.../...g...t076h48b10132`) para que `aprs.fi` grafique las curvas de temperatura, humedad y presión atmosférica.
-    3. **`NO INFORMAR`:** Muestra temperatura, humedad y presión únicamente en la pantalla (`PANEL` y `CONF 5/6`), sin transmitirlas en las balizas.
-* **Control de Brillo de Pantalla TFT y LED Azul de Estado (`CONF 6/6: CREDITOS Y VERSION`):**
+    3. **`NO INFORMAR`:** Muestra temperatura, humedad y presión únicamente en la pantalla (`PANEL` y `CONF 5/7`), sin transmitirlas en las balizas.
+* **Control de Brillo de Pantalla TFT y LED Azul de Estado (`CONF 7/7: CREDITOS Y VERSION`):**
   * Ajuste de brillo de retroiluminación **TFT (`100%`, `65%`, `35%`, `15%`)** por PWM y control del **LED Azul (`TENUE`, `MEDIO`, `OFF`)** guardado en memoria permanente NVS.
-* **Actualización de Firmware por MicroSD y OTA (`CONF 4/6`):**
+* **Actualización de Firmware por MicroSD y OTA (`CONF 4/7`):**
   * **Auto-Actualización por MicroSD en Arranque:** Si insertas una tarjeta MicroSD con `/update.bin` o `/firmware.bin`, la placa lo detecta al encender, muestra la barra de progreso en pantalla, actualiza la Flash y renombra el archivo a `/update.bak` para evitar bucles.
-  * **Escáner e Instalador MicroSD en Pantalla:** En `CONF 4/6` puedes pulsar **`[ESCANEAR SD]`** para listar archivos `.bin` en la tarjeta e instalarlos con un toque.
+  * **Escáner e Instalador MicroSD en Pantalla:** En `CONF 4/7` puedes pulsar **`[ESCANEAR SD]`** para listar archivos `.bin` en la tarjeta e instalarlos con un toque.
   * **Portal Web Local + Subida OTA por Navegador (`WebServer` + `ArduinoOTA`):** En modo IGate (o pulsando **`[PORTAL WEB / AP WIFI OTA]`** que levanta la red WiFi `CYD-APRS-<INDICATIVO>` en `http://192.168.4.1`), puedes configurar toda la estación o subir un archivo `firmware.bin` desde el celular o PC (`http://<IP>/update`).
   * **Actualización Remota HTTP/HTTPS (`OTA URL`):** Descarga directa desde URL `.bin` o servidor con manifiesto JSON y validación de versión semántica (`SemVer`).
 * **Módem DSP AFSK 1200 bps (Bell 202) en Tiempo Real (`Core 0`):**
@@ -60,7 +71,7 @@ espcydaprs/
 │   ├── sensor_manager.h    # Driver nativo I2C/1-Wire para BMP280, BME280, AHT10/20, DHT22 y DHT11
 │   ├── igate_manager.h     # Cliente TCP APRS-IS (inyección qAR, Passcode hash, filtros IS<->RF)
 │   ├── update_manager.h    # Actualizador por MicroSD, HTTP/HTTPS OTA y Portal Web / AP
-│   └── ui_manager.h        # Interfaz gráfica táctil de 5 pestañas de radio + 6 páginas Config + QWERTY
+│   └── ui_manager.h        # Interfaz gráfica táctil de 5 pestañas de radio + 7 páginas Config + QWERTY
 └── src/
     ├── main.cpp            # Inicialización dual-core, PWM Backlight/LED, auto-update SD y comandos Serial
     ├── cst820_touch.cpp    # Implementación de controladores táctiles CST820 y XPT2046

@@ -1,6 +1,7 @@
 #include "ax25_aprs.h"
 #include "igate_manager.h"
 #include "sensor_manager.h"
+#include <driver/dac.h>
 #include <Preferences.h>
 #include <TinyGPS++.h>
 #include <math.h>
@@ -11,6 +12,8 @@ static TinyGPSPlus s_gps;
 AprsEngine::AprsEngine() {
     memset(&_cfg, 0, sizeof(_cfg));
     memset(&_gpsState, 0, sizeof(_gpsState));
+    memset(&_emergState, 0, sizeof(_emergState));
+    _lastEmergSoundMs = 0;
     memset(_packetLog, 0, sizeof(_packetLog));
     memset(_stations, 0, sizeof(_stations));
     memset(_messages, 0, sizeof(_messages));
@@ -98,6 +101,15 @@ void AprsEngine::loadConfig() {
     _cfg.tempOffsetC      = prefs.getFloat("snsTOff", 0.0f);
     _cfg.humOffsetPct     = prefs.getFloat("snsHOff", 0.0f);
 
+    // Aviso de Emergencia (SOS)
+    _cfg.emergIntervalSec = prefs.getUShort("emgInt", 120);
+    if (_cfg.emergIntervalSec != 60 && _cfg.emergIntervalSec != 120 && _cfg.emergIntervalSec != 180) {
+        _cfg.emergIntervalSec = 120;
+    }
+    _cfg.emergSendDirectMsg = prefs.getBool("emgMsg", false);
+    strlcpy(_cfg.emergMsgDest, prefs.getString("emgDst", "").c_str(), sizeof(_cfg.emergMsgDest));
+    _cfg.emergSoundAlert    = prefs.getBool("emgSnd", false);
+
     prefs.end();
 }
 
@@ -153,6 +165,12 @@ void AprsEngine::saveConfig() {
     prefs.putFloat("snsTOff", _cfg.tempOffsetC);
     prefs.putFloat("snsHOff", _cfg.humOffsetPct);
 
+    // Aviso de Emergencia (SOS)
+    prefs.putUShort("emgInt", _cfg.emergIntervalSec);
+    prefs.putBool("emgMsg", _cfg.emergSendDirectMsg);
+    prefs.putString("emgDst", _cfg.emergMsgDest);
+    prefs.putBool("emgSnd", _cfg.emergSoundAlert);
+
     prefs.end();
     Modem.configure(_cfg.txDelayMs, _cfg.txTailMs, _cfg.txVolume, _cfg.txAudioPin);
 }
@@ -189,6 +207,9 @@ void AprsEngine::applyRadioPreset(RadioType type) {
 }
 
 void AprsEngine::applyStationMode(StationMode mode) {
+    if (mode != STATION_MODE_TRACKER && _emergState.active) {
+        cancelEmergency();
+    }
     _cfg.stationMode = mode;
     if (mode == STATION_MODE_TRACKER) {
         // Modo Tracker Móvil / Portátil
@@ -254,6 +275,12 @@ int16_t AprsEngine::getCurrentAlt() const {
 }
 
 uint32_t AprsEngine::getSecondsUntilNextBeacon() const {
+    if (_emergState.active) {
+        if (_cfg.emergIntervalSec == 0) return 0;
+        uint32_t elapsedSec = (millis() - _emergState.lastBeaconMs) / 1000;
+        if (elapsedSec >= _cfg.emergIntervalSec) return 0;
+        return _cfg.emergIntervalSec - elapsedSec;
+    }
     if (!_cfg.autoBeacon || _cfg.beaconIntervalSec == 0) return 0;
     uint32_t elapsedSec = (millis() - _lastBeaconMs) / 1000;
     if (elapsedSec >= _cfg.beaconIntervalSec) return 0;
@@ -292,8 +319,26 @@ void AprsEngine::update() {
         }
     }
 
-    // 2. Baliza automática periódica
-    if (_cfg.autoBeacon && _cfg.beaconIntervalSec >= 30) {
+    // 2. Baliza de Emergencia SOS o Baliza automática periódica
+    if (_emergState.active) {
+        if (millis() - _emergState.lastBeaconMs >= (uint32_t)_cfg.emergIntervalSec * 1000UL) {
+            sendEmergencyBeacon(false);
+        }
+        // Alerta sonora opcional por altavoz interno DAC2 (GPIO 26) cada 15s si no está transmitiendo
+        if (_cfg.emergSoundAlert && !Modem.isTransmitting() && (millis() - _lastEmergSoundMs >= 15000UL)) {
+            _lastEmergSoundMs = millis();
+            for (int b = 0; b < 2; b++) {
+                for (int i = 0; i < 70; i++) {
+                    dac_output_voltage(DAC_CHANNEL_2, 200);
+                    delayMicroseconds(500);
+                    dac_output_voltage(DAC_CHANNEL_2, 55);
+                    delayMicroseconds(500);
+                }
+                dac_output_voltage(DAC_CHANNEL_2, 128);
+                delay(60);
+            }
+        }
+    } else if (_cfg.autoBeacon && _cfg.beaconIntervalSec >= 30) {
         if (millis() - _lastBeaconMs >= (uint32_t)_cfg.beaconIntervalSec * 1000UL) {
             sendPositionBeacon(false);
         }
@@ -586,6 +631,149 @@ bool AprsEngine::sendCustomStatus(const char* statusText, bool loopbackTest) {
         info
     );
     return Modem.transmitFrame(frame, frameLen, loopbackTest);
+}
+
+const char* AprsEngine::getEmergencyTypeStr(uint8_t type) {
+    switch (type) {
+        case EMERG_TYPE_MEDICAL: return "EMERGENCIA MEDICA";
+        case EMERG_TYPE_VEHICLE: return "AUXILIO VEHICULO";
+        case EMERG_TYPE_LOST:    return "EXTRAVIO / RESCATE";
+        case EMERG_TYPE_SOS:
+        default:                 return "SOS AUXILIO";
+    }
+}
+
+bool AprsEngine::sendEmergencyBeacon(bool loopbackTest) {
+    double lat = getCurrentLat();
+    double lon = getCurrentLon();
+    int16_t altMeters = getCurrentAlt();
+
+    char ns = (lat >= 0.0) ? 'N' : 'S';
+    double absLat = fabs(lat);
+    int latDeg = (int)absLat;
+    double latMin = (absLat - latDeg) * 60.0;
+
+    char ew = (lon >= 0.0) ? 'E' : 'W';
+    double absLon = fabs(lon);
+    int lonDeg = (int)absLon;
+    double lonMin = (absLon - lonDeg) * 60.0;
+
+    int32_t altFeet = (int32_t)roundf(altMeters * 3.28084f);
+    if (altFeet < 0) altFeet = 0;
+
+    // Símbolo oficial de emergencia APRS 1.0.1: Tabla '\' y código '!' (\!)
+    // Genera alerta visual roja en aprs.fi y APRS-IS
+    char info[160];
+    snprintf(info, sizeof(info),
+             "=%02d%05.2f%c\\%03d%05.2f%c!/A=%06ld [EMERGENCIA: %s] %s",
+             latDeg, latMin, ns,
+             lonDeg, lonMin, ew,
+             (long)altFeet,
+             getEmergencyTypeStr(_emergState.type),
+             _cfg.comment);
+
+    _emergState.lastBeaconMs = millis();
+    _emergState.beaconCount++;
+
+    if (!loopbackTest && Igate.isAprsIsConnected()) {
+        Igate.sendSelfBeaconToAprsIs(info);
+    }
+
+    uint8_t frame[MAX_AX25_FRAME_LEN];
+    uint16_t frameLen = buildAx25Frame(
+        frame,
+        _cfg.callsign, _cfg.ssid,
+        _cfg.destCall, 0,
+        _cfg.path1, _cfg.path1Ssid,
+        _cfg.path2, _cfg.path2Ssid,
+        info
+    );
+
+    return Modem.transmitFrame(frame, frameLen, loopbackTest);
+}
+
+bool AprsEngine::sendEmergencyCancelBeacon(bool loopbackTest) {
+    double lat = getCurrentLat();
+    double lon = getCurrentLon();
+    int16_t altMeters = getCurrentAlt();
+
+    char ns = (lat >= 0.0) ? 'N' : 'S';
+    double absLat = fabs(lat);
+    int latDeg = (int)absLat;
+    double latMin = (absLat - latDeg) * 60.0;
+
+    char ew = (lon >= 0.0) ? 'E' : 'W';
+    double absLon = fabs(lon);
+    int lonDeg = (int)absLon;
+    double lonMin = (absLon - lonDeg) * 60.0;
+
+    int32_t altFeet = (int32_t)roundf(altMeters * 3.28084f);
+    if (altFeet < 0) altFeet = 0;
+
+    // Restaura la tabla y símbolo estándar del operador y envía comentario de resolución
+    char info[160];
+    snprintf(info, sizeof(info),
+             "=%02d%05.2f%c%c%03d%05.2f%c%c/A=%06ld [EMERGENCIA CANCELADA - SITUACION NORMALIZADA]",
+             latDeg, latMin, ns,
+             _cfg.symbolTable,
+             lonDeg, lonMin, ew,
+             _cfg.symbolCode,
+             (long)altFeet);
+
+    if (!loopbackTest && Igate.isAprsIsConnected()) {
+        Igate.sendSelfBeaconToAprsIs(info);
+    }
+
+    uint8_t frame[MAX_AX25_FRAME_LEN];
+    uint16_t frameLen = buildAx25Frame(
+        frame,
+        _cfg.callsign, _cfg.ssid,
+        _cfg.destCall, 0,
+        _cfg.path1, _cfg.path1Ssid,
+        _cfg.path2, _cfg.path2Ssid,
+        info
+    );
+
+    return Modem.transmitFrame(frame, frameLen, loopbackTest);
+}
+
+void AprsEngine::triggerEmergency(uint8_t emergType) {
+    if (_cfg.stationMode != STATION_MODE_TRACKER) return;
+
+    _emergState.active = true;
+    _emergState.type = emergType;
+    _emergState.startTimeMs = millis();
+    _emergState.lastBeaconMs = millis();
+    _emergState.beaconCount = 0;
+    _lastEmergSoundMs = millis();
+
+    // 1. Enviar baliza de emergencia inmediata
+    sendEmergencyBeacon(false);
+
+    // 2. Enviar mensaje directo APRS si está configurado y hay destinatario
+    if (_cfg.emergSendDirectMsg && strlen(_cfg.emergMsgDest) > 0) {
+        char msg[64];
+        snprintf(msg, sizeof(msg), "EMERGENCIA [%s] EN MI POSICION!", getEmergencyTypeStr(emergType));
+        sendTextMessage(_cfg.emergMsgDest, msg, false);
+    }
+
+    _uiRevision++;
+}
+
+void AprsEngine::cancelEmergency() {
+    if (!_emergState.active) return;
+
+    // 1. Transmitir baliza de cancelación y normalización
+    sendEmergencyCancelBeacon(false);
+
+    // 2. Enviar mensaje directo de cancelación si estaba configurado
+    if (_cfg.emergSendDirectMsg && strlen(_cfg.emergMsgDest) > 0) {
+        sendTextMessage(_cfg.emergMsgDest, "EMERGENCIA CANCELADA - TODO NORMALIZADO", false);
+    }
+
+    _emergState.active = false;
+    _lastBeaconMs = millis(); // Reiniciar intervalo regular
+    _uiRevision++;
 }
 
 void AprsEngine::sendAckPacket(const char* toCallsign, const char* msgId) {
