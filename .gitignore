@@ -7,5 +7,7 @@
 *.o
 *.elf
 *.bin
+!utils/firmware/*.bin
+utils/bin/
 *.map
 

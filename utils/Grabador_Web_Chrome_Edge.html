@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Grabador Web ESP32 CYD APRS - LU4HNE</title>
+<style>
+  :root {
+    --bg: #0e1621;
+    --card: #182533;
+    --border: #2b3e52;
+    --accent: #00bcd4;
+    --green: #2ecc71;
+    --orange: #f39c12;
+    --red: #e74c3c;
+    --text: #f0f5fa;
+    --muted: #9cb0c5;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  }
+  .container {
+    max-width: 720px;
+    margin: 0 auto;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+  }
+  h1 {
+    margin: 0 0 6px 0;
+    color: var(--accent);
+    font-size: 22px;
+  }
+  .sub {
+    color: var(--muted);
+    font-size: 14px;
+    margin-bottom: 20px;
+  }
+  .step {
+    background: rgba(0,0,0,0.22);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  .step h3 {
+    margin: 0 0 10px 0;
+    color: var(--accent);
+    font-size: 15px;
+  }
+  label {
+    display: block;
+    margin: 8px 0;
+    cursor: pointer;
+    font-size: 14px;
+  }
+  input[type="file"] {
+    margin-top: 8px;
+    padding: 8px;
+    width: 100%;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .btn-row {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+  }
+  button {
+    border: none;
+    border-radius: 6px;
+    padding: 12px 20px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  .btn-connect { background: var(--accent); color: #081018; }
+  .btn-flash   { background: var(--green);  color: #081018; flex: 1; }
+  .progress-wrap {
+    width: 100%;
+    height: 18px;
+    background: #080c12;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    overflow: hidden;
+    margin: 14px 0;
+  }
+  .progress-bar {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--accent), var(--green));
+    transition: width 0.2s;
+  }
+  pre {
+    background: #080c12;
+    color: #78ffa0;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    height: 200px;
+    overflow-y: auto;
+    font-family: Consolas, monospace;
+    font-size: 12.5px;
+    margin: 0;
+    white-space: pre-wrap;
+  }
+  .tip {
+    font-size: 13px;
+    color: var(--orange);
+    margin-top: 10px;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>ESP32 CYD APRS 1200 bps — Grabador Web (Chrome / Edge)</h1>
+  <div class="sub">Graba tu placa ESP32-2432S024C / 2432S028R directo desde el navegador sin instalar programas (73 de LU4HNE)</div>
+
+  <div class="step">
+    <h3>PASO 1: Elige el modo y selecciona el archivo .bin de la carpeta <code>utils/firmware/</code></h3>
+    <label>
+      <input type="radio" name="mode" value="0x0" checked onchange="updateHint()">
+      <strong>Instalación Completa desde Cero (Offset 0x0000)</strong> — Selecciona <code>firmware/ESP32_CYD_APRS_FULL.bin</code> (Recomendado para placas nuevas)
+    </label>
+    <label>
+      <input type="radio" name="mode" value="0x10000" onchange="updateHint()">
+      <strong>Solo Actualizar Firmware (Offset 0x10000)</strong> — Selecciona <code>firmware/update.bin</code> (Mantiene tu Indicativo y WiFi)
+    </label>
+    <input type="file" id="binFile" accept=".bin">
+    <div id="fileHint" class="tip">Selecciona el archivo: <strong>utils/firmware/ESP32_CYD_APRS_FULL.bin</strong></div>
+  </div>
+
+  <div class="step">
+    <h3>PASO 2: Conecta tu placa por USB y presiona Grabar</h3>
+    <div class="btn-row">
+      <button id="btnFlash" class="btn-flash" onclick="connectAndFlash()">CONECTAR PUERTO USB Y GRABAR FIRMWARE</button>
+    </div>
+    <div class="progress-wrap">
+      <div id="progBar" class="progress-bar"></div>
+    </div>
+    <pre id="logBox">[Listo] Abre esta pagina en Google Chrome o Microsoft Edge, selecciona el archivo .bin arriba y pulsa el boton verde.
+</pre>
+    <div class="tip">
+      <strong>Nota:</strong> Si al terminar la pantalla de tu CYD queda blanca o sin imagen, mantén presionado el botón físico <strong>BOOT</strong> de la placa durante <strong>2 segundos</strong> para alternar entre los drivers de pantalla <code>ILI9341</code> y <code>ST7789</code>.
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { ESPLoader, Transport } from "https://unpkg.com/esptool-js@0.4.5/bundle.js";
+
+  const logBox = document.getElementById("logBox");
+  const progBar = document.getElementById("progBar");
+  const btnFlash = document.getElementById("btnFlash");
+
+  function logLine(msg) {
+    logBox.textContent += msg + "\n";
+    logBox.scrollTop = logBox.scrollHeight;
+  }
+
+  window.updateHint = function() {
+    const mode = document.querySelector('input[name="mode"]:checked').value;
+    const hint = document.getElementById("fileHint");
+    if (mode === "0x0") {
+      hint.innerHTML = 'Selecciona el archivo: <strong>utils/firmware/ESP32_CYD_APRS_FULL.bin</strong>';
+    } else {
+      hint.innerHTML = 'Selecciona el archivo: <strong>utils/firmware/update.bin</strong>';
+    }
+  };
+
+  function arrayBufferToBinaryString(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+    }
+    return binary;
+  }
+
+  window.connectAndFlash = async function() {
+    if (!("serial" in navigator)) {
+      alert("Tu navegador no soporta WebSerial. Por favor abre este archivo con Google Chrome o Microsoft Edge.");
+      return;
+    }
+
+    const fileInput = document.getElementById("binFile");
+    if (!fileInput.files || fileInput.files.length === 0) {
+      alert("Primero selecciona el archivo .bin de la carpeta utils/firmware/ en el Paso 1.");
+      return;
+    }
+
+    const file = fileInput.files[0];
+    const offsetHex = document.querySelector('input[name="mode"]:checked').value;
+    const address = parseInt(offsetHex, 16);
+
+    let device = null;
+    let transport = null;
+
+    try {
+      btnFlash.disabled = true;
+      progBar.style.width = "5%";
+      logLine("Solicitando puerto USB Serial...");
+
+      device = await navigator.serial.requestPort({});
+      transport = new Transport(device, true);
+
+      const espLoaderTerminal = {
+        clean() { logBox.textContent = ""; },
+        writeLine(data) { logLine(data); },
+        write(data) {
+          logBox.textContent += data;
+          logBox.scrollTop = logBox.scrollHeight;
+        }
+      };
+
+      const esploader = new ESPLoader({
+        transport,
+        baudrate: 460800,
+        terminal: espLoaderTerminal
+      });
+
+      logLine("Conectando con el ESP32 (Si demora, manten presionado el boton BOOT de la placa)...");
+      const chip = await esploader.main();
+      logLine("Conectado a: " + chip);
+
+      const arrayBuf = await file.arrayBuffer();
+      const binStr = arrayBufferToBinaryString(arrayBuf);
+
+      logLine(`Grabando ${file.name} (${Math.round(file.size / 1024)} KB) en direccion ${offsetHex}...`);
+
+      await esploader.writeFlash({
+        fileArray: [{ data: binStr, address: address }],
+        flashSize: "4MB",
+        flashMode: "dio",
+        flashFreq: "40m",
+        eraseAll: false,
+        compress: true,
+        reportProgress: (fileIndex, written, total) => {
+          const pct = Math.round((written / total) * 100);
+          progBar.style.width = pct + "%";
+        }
+      });
+
+      progBar.style.width = "100%";
+      logLine("==========================================================");
+      logLine("¡GRABACION COMPLETADA CON EXITO! Reiniciando placa ESP32...");
+      logLine("==========================================================");
+
+      await transport.setDTR(false);
+      await transport.setRTS(true);
+      await new Promise(r => setTimeout(r, 120));
+      await transport.setRTS(false);
+      await transport.disconnect();
+
+      alert("¡Firmware grabado con éxito! Ya puedes usar tu estación APRS ESP32 CYD.");
+    } catch (err) {
+      logLine("ERROR: " + (err.message || err));
+      if (transport) {
+        try { await transport.disconnect(); } catch (e) {}
+      }
+    } finally {
+      btnFlash.disabled = false;
+    }
+  };
+</script>
+</body>
+</html>
