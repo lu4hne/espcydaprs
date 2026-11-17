@@ -216,16 +216,17 @@ void AfskModem::onRxTimerSample() {
         int pct = (_peakInWindow * 100) / 1400;
         if (pct > 100) pct = 100;
         _rxLevelPercent = (uint8_t)pct;
-        _carrierDetected = (_peakInWindow > 90) && _rxInFrame;
+        _carrierDetected = (_peakInWindow > 70) || _rxInFrame;
         _peakInWindow = 0;
         _levelWindowSamples = 0;
     }
 
-    // Procesar muestra en el demodulador DSP si supera el piso de ruido mínimo
-    if (absSample > 25 || _rxInFrame) {
-        if (absSample > _rxPeakTrack) _rxPeakTrack = absSample;
-        processRxSample(centered);
+    // Procesar todas las muestras continuamente a 9600 Hz en el demodulador DSP
+    // sin omitir cruces por cero para preservar la fase exacta del lazo DPLL y correlador
+    if (absSample > _rxPeakTrack) {
+        _rxPeakTrack = absSample;
     }
+    processRxSample(centered);
 }
 
 void AfskModem::dspTaskLoop() {
@@ -375,8 +376,8 @@ void AfskModem::processRxSample(int16_t centeredSample) {
     float energySpace = (float)(iSpace * iSpace + qSpace * qSpace);
     float diff = energyMark - energySpace;
 
-    // Filtro pasa-bajos post-detección
-    _lpfCorr = 0.55f * _lpfCorr + 0.45f * diff;
+    // Filtro pasa-bajos post-detección (alpha=0.30 para suprimir rizado de batido 1200/2200 Hz)
+    _lpfCorr = 0.70f * _lpfCorr + 0.30f * diff;
     bool currentToneMark = (_lpfCorr >= 0.0f);
 
     // Recuperación de reloj (Digital PLL) en transiciones de tono

@@ -297,6 +297,11 @@ void AprsEngine::update() {
         if (decodeAx25Frame(raw, &decoded)) {
             decoded.fromAprsIs = false;
 
+            Serial.printf("[RX-RF] %s > %s via %s: %s (Pico: %d)\n",
+                          decoded.srcCall, decoded.dstCall,
+                          (decoded.pathStr[0] != '\0') ? decoded.pathStr : "DIRECTO",
+                          decoded.infoText, decoded.audioPeak);
+
             // Si estamos en modo Estación Fija + IGate (o IGate activo), inyectar a APRS-IS
             if (_cfg.stationMode == STATION_MODE_FIXED_IGATE || _cfg.igateEnabled) {
                 decoded.gatedToIs = Igate.injectRfPacket(decoded);
@@ -316,6 +321,11 @@ void AprsEngine::update() {
             if (_cfg.digipeatWide1) {
                 maybeDigipeat(raw, decoded);
             }
+
+            _uiRevision++;
+        } else {
+            Serial.printf("[RX-RAW] Trama recibida pero no decodificada como APRS (len: %u, Pico: %d)\n",
+                          raw.len, raw.audioPeak);
         }
     }
 
