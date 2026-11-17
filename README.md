@@ -198,7 +198,7 @@ Para acoplar el audio sin saturar el micrófono del radio ni dañar el ADC del E
                      |
                     [R1] 10 kΩ
                      |
-SPK Radio o---||-----+----------------> IO35 (ADC1_CH7)
+SPK Radio o---||-----+----------+-----> IO35 (ADC1_CH7)
              C1      |          |
             1 µF    [R2] 10 kΩ === C2 (10nf) 
                      |          |
