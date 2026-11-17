@@ -1,4 +1,4 @@
-# ESP32 CYD (`ESP32-2432S024C` / `ESP32-2432S028R`) — Transceptor APRS 1200 bps / Tracker / Estación Fija + IGate + Estación Meteorológica WX (`v1.6.0`)
+# ESP32 CYD (`ESP32-2432S024C` / `ESP32-2432S028R`) — Transceptor APRS 1200 bps / Tracker / Estación Fija + IGate + Estación Meteorológica WX (`v1.6.1`)
 
 Aplicación completa de **codificación y decodificación APRS a 1200 baudios (AFSK Bell 202 / AX.25)** con **IGate APRS-IS bidireccional por WiFi**, **telemetría meteorológica (`BMP280 / BME280 / AHT20 / DHT22 / DHT11`)** y **actualización de firmware por MicroSD y Web OTA**, diseñada para la familia de placas **ESP32 Cheap Yellow Display (CYD)** tanto en sus variantes con controlador **`ILI9341`** como **`ST7789` (1-USB)** y paneles táctiles **`CST820` (I2C)** o **`XPT2046` (SPI dedicado o compartido)**.
 
@@ -53,7 +53,7 @@ Permite conectar directamente un handy o base **Yaesu** o **Baofeng** (en VHF `1
   * **Actualización Remota HTTP/HTTPS (`OTA URL`):** Descarga directa desde URL `.bin` o servidor con manifiesto JSON y validación de versión semántica (`SemVer`).
 * **Módem DSP AFSK 1200 bps (Bell 202) en Tiempo Real (`Core 0`):**
   * **Modulador TX:** Síntesis Digital Directa (DDS) de fase continua para tonos **Mark (`1200 Hz`)** y **Space (`2200 Hz`)** en `GPIO 26` (`DAC2`) y en el pin de expansión seleccionado (`IO4`, `IO27`, `IO21` o `IO17`) mediante modulador Sigma-Delta a `312.5 kHz`, con codificación NRZI, *bit-stuffing* HDLC, `CRC-16 CCITT` y control automático de PTT (`GPIO 22`).
-  * **Demodulador RX Universal (Equipos Comerciales y Radiosondas RS41):** Muestreo ADC continuo (`GPIO 35`) a `9600 Hz`, filtro eliminador de continua (DC blocker), **filtro digital entero de pre-énfasis de 1er orden (`+4.5 dB` en `2200 Hz`)**, correlador en cuadratura (*Matched Filter*), lazo **DPLL**, validación `CRC-16` y decodificación tanto de coordenadas estándar como **Comprimidas Base-91** y telemetría de radiosondas (`RS41ng`).
+  * **Demodulador RX Universal (Equipos Comerciales y Radiosondas RS41):** Muestreo ADC continuo (`GPIO 35`) a `9600 Hz`, filtro eliminador de continua (DC blocker), correlador en cuadratura óptimo (*Matched Filter* con detección de 1200/2200 Hz balanceada 1:1), lazo **DPLL**, compuerta de nivel de ruido (squelch digital), validación `CRC-16` y decodificación tanto de tramas estándar como **Comprimidas Base-91** y telemetría de radiosondas (`RS41ng`).
   * **Modo Test Loopback Integrado:** Prueba la codificación y decodificación AX.25/APRS directamente en la placa con un toque en pantalla.
 
 ---
@@ -199,14 +199,16 @@ Para acoplar el audio sin saturar el micrófono del radio ni dañar el ADC del E
                     [R1] 10 kΩ
                      |
 SPK Radio o---||-----+----------------> IO35 (ADC1_CH7)
-             C1      |
-            1 µF    [R2] 10 kΩ
-                     |
-                    GND (Común)
+             C1      |          |
+            1 µF    [R2] 10 kΩ === C2 (10nf) 
+                     |          |
+                    GND        GND (Común)
 
 * R1 y R2 (10 kΩ) crean un punto medio de 1.65V DC para que la onda de audio
   oscile entre 0V y 3.3V sin recortarse.
 * C1 (1 µF cerámico o electrolítico) aísla el nivel DC del amplificador del radio.
+* C2 (10 nF cerámico "103") en paralelo con R2 forma un filtro pasa-bajos pasivo
+  con frecuencia de corte en ~3.1 kHz, eliminando el siseo y ruido blanco de alta frecuencia al abrir el squelch para una decodificación AFSK óptima y estable.
 
 ================================================================================
 2. SALIDA DE AUDIO TX (IO4 / IO27 / IO21 / IO17 ---> Entrada MIC del Radio)
@@ -277,37 +279,25 @@ La barra inferior mantiene **5 botones amplios dedicados a la operación de radi
 
 ---
 
-## Optimización del Demodulador DSP para Recepción Universal (Handies, Equipos Base y Radiosondas RS41)
+## Demodulador DSP y Filtrado de Audio (1000 Hz a 2500 Hz)
 
-El receptor AFSK a `1200 baudios` fue optimizado para decodificar con alta sensibilidad tanto transmisores APRS convencionales (handies Baofeng, Yaesu, Kenwood, TNCs y modo Loopback) como **radiosondas meteorológicas Vaisala RS41 (`RS41ng` / `RS41-HUP`)** cuyo transmisor `Si4032` sintetiza AFSK con características particulares:
+El receptor AFSK a `1200 baudios` utiliza un **Filtro Adaptado en Cuadratura (*Matched Filter*)** a 9600 Hz con detección ortogonal ($I/Q$) sobre una ventana deslizante de 8 muestras:
 
-1. **Muestreo Continuo en Cruces por Cero durante el Preámbulo (`afsk_modem.cpp`):**
-   * El demodulador procesa el flujo completo de muestras a `9600 Hz` sin descartar muestras cercanas al cruce por cero (`0V AC` / `1.65V DC`) mientras espera el primer flag `0x7E` (`_rxInFrame == false`).
-   * Esto preserva intactos el período de la onda senoidal y la fase del reloj DPLL desde el primer milisegundo del preámbulo, permitiendo decodificar señales muy débiles (desde `~40 mVpk` / `3%` en el vúmetro de pantalla).
-2. **Filtro Digital Entero de Pre-énfasis de 1er Orden (`+4.5 dB` en `2200 Hz` vs `1200 Hz`):**
-   * En las salidas de parlante de receptores FM (de-énfasis acústico) y en transmisiones de radiosondas RS41, el tono **Space (`2200 Hz`)** suele llegar con una atenuación (*twist* negativo) de `-3.5 dB` a `-6 dB` respecto al tono **Mark (`1200 Hz`)**. Como el correlador compara energías cuadráticas ($E_{1200} - E_{2200}$), esa diferencia se duplica en dB (`-7 dB` a `-12 dB`) sesgando el ancho de los bits.
-   * Antes de ingresar al correlador en cuadratura se aplica un filtro diferenciador entero de primer orden:
-     ```cpp
-     int16_t preEmph = centeredSample - (int16_t)((_prevCentered * 3) >> 3);
-     ```
-   * Utiliza únicamente aritmética entera (**0% de sobrecarga de CPU**), ecualiza la energía entre `1200 Hz` y `2200 Hz` y mantiene un **100% de efectividad** simultánea en señales de-enfatizadas (`-6 dB`), planas (`0 dB`, como el modo Loopback) y pre-enfatizadas (`+6 dB`).
-3. **Decodificación de Telemetría de Sondas (`WX`) y Coordenadas Comprimidas Base-91 (`ax25_aprs.cpp`):**
+1. **Rechazo Natural de Ruido Fuera de Banda (Filtro Pasabanda Intrínseco):**
+   * El correlador DSP sintoniza por transformada exacta de Fourier las frecuencias centrales **`Mark (1200 Hz)`** y **`Space (2200 Hz)`**.
+   * Las frecuencias fuera del rango útil son atenuadas naturalmente por el algoritmo:
+     * Tonos sub-audibles CTCSS/PL (`67 Hz` a `250 Hz`): atenuación de **`-23 dB` a `-18 dB`**.
+     * Ruido de conmutación y armónicos (`>3500 Hz`): atenuación superior a **`-15 dB`**.
+   * Por esta razón **no es necesario un circuito activo complejo con amplificadores operacionales**.
+2. **Filtro Pasabanda Pasivo Opcional de Entrada (Recomendado si hay mucho siseo):**
+   * El circuito de entrada con capacitor $C_1$ (`1 µF`) y el divisor $R_1 / R_2$ (`10 kΩ` c/u) ya crea un filtro pasa-altos con corte en **`31.8 Hz`**.
+   * Para limitar pasivamente las frecuencias altas y eliminar el siseo del receptor cuando abre el squelch, basta con soldar un pequeño **capacitor cerámico de `10 nF`** (marcado "103") o `22 nF` en paralelo con la resistencia $R_2$ (la que va a masa). Esto fija una frecuencia de corte superior en **`~3180 Hz`**, formando un filtro pasabanda pasivo completo sin componentes activos.
+3. **Compuerta Digital de Ruido (Squelch DSP):**
+   * Se evalúa el umbral mínimo de señal antes de alimentar transiciones al bucle DPLL y a la máquina de estados HDLC, impidiendo que el ruido blanco de canal genere falsas banderas (`0x7E`) que bloqueen la captura de balizas reales.
+4. **Decodificación de Telemetría de Sondas (`WX`) y Coordenadas Comprimidas Base-91 (`ax25_aprs.cpp`):**
    * **Tramas Meteorológicas y de Radiosondas:** Reconoce y formatea automáticamente campos climáticos en paquetes de posición (`.../...g...t032h01b00000...` $\rightarrow$ `[0.0C 1%] RS41ng radiosonde firmware`), convirtiendo grados Fahrenheit a Celsius, humedad relativa (`%`) y presión barométrica (`hPa`).
    * **Filtro de Coordenadas Nulas (`0000.00S/00000.00W`):** Cuando una sonda o tracker transmite antes de adquirir satélites GPS (`Lat = 0.0, Lon = 0.0`), evita calcular una distancia falsa de `~6472 km` hacia el punto `(0°, 0°)`.
    * **Soporte Base-91 Comprimido (`/YYYYXXXX$csT`):** Decodifica latitud, longitud y altitud exponencial comprimida en Base-91, estándar muy utilizado en firmwares de radiosondas y trackers compactos.
-
-### Tabla Comparativa de Sensibilidad y Decodificación (Probado sobre Telemetría Real de Sonda `RS41ng`)
-
-Evaluación sobre 50 fases distintas de muestreo a través de todo el rango dinámico del ADC (`GPIO 35`):
-
-| Nivel de Audio en `GPIO 35` | Vúmetro en Pantalla | Decodificación Anterior | **Decodificación Optimizada (`v1.5.2`)** |
-| :--- | :---: | :---: | :---: |
-| **`40 mVpk` (Señal muy débil)** | `~3%` | `6%` (3/50) | **`96%` (48/50)** |
-| **`64 mVpk` (Volumen bajo)** | `~5%` | `46%` (23/50) | **`100%` (50/50)** |
-| **`96 mVpk` (Volumen bajo-medio)** | `~8%` | `38%` (19/50) | **`100%` (50/50)** |
-| **`160 mVpk` (Volumen medio)** | `~14%` | `48%` (24/50) | **`100%` (50/50)** |
-| **`280 mVpk` (Volumen normal)** | `~25%` | `68%` (34/50) | **`100%` (50/50)** |
-| **`480–800 mVpk` (Volumen alto)** | `42% – 71%` | `100%` (50/50) | **`100%` (50/50)** |
 
 ---
 

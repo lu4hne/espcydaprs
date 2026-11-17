@@ -216,17 +216,16 @@ void AfskModem::onRxTimerSample() {
         int pct = (_peakInWindow * 100) / 1400;
         if (pct > 100) pct = 100;
         _rxLevelPercent = (uint8_t)pct;
-        _carrierDetected = (_peakInWindow > 60) && _rxInFrame;
+        _carrierDetected = (_peakInWindow > 90) && _rxInFrame;
         _peakInWindow = 0;
         _levelWindowSamples = 0;
     }
 
-    // Procesar todas las muestras continuamente a 9600 Hz sin descartar cruces por cero
-    // para preservar la fase exacta durante el preámbulo 0x7E incluso con señales débiles.
-    if (absSample > _rxPeakTrack) {
-        _rxPeakTrack = absSample;
+    // Procesar muestra en el demodulador DSP si supera el piso de ruido mínimo
+    if (absSample > 25 || _rxInFrame) {
+        if (absSample > _rxPeakTrack) _rxPeakTrack = absSample;
+        processRxSample(centered);
     }
-    processRxSample(centered);
 }
 
 void AfskModem::dspTaskLoop() {
@@ -255,7 +254,6 @@ void AfskModem::dspTaskLoop() {
             _rxInFrame = false;
             _rxBitIndex = 0;
             _rxFrameLen = 0;
-            _prevCentered = 0;
             _lpfCorr = 0.0f;
             _pllCounter = 0;
         }
@@ -357,13 +355,7 @@ void AfskModem::dspTaskLoop() {
 }
 
 void AfskModem::processRxSample(int16_t centeredSample) {
-    // Filtro digital de pre-énfasis de 1er orden (+4.5 dB en 2200 Hz vs 1200 Hz):
-    // Compensa la atenuación de agudos (de-énfasis / twist) de handies FM y sondas RS41
-    // usando únicamente aritmética entera (0% sobrecarga de CPU).
-    int16_t preEmph = centeredSample - (int16_t)((_prevCentered * 3) >> 3);
-    _prevCentered = centeredSample;
-
-    _sampleBuf[_sampleIdx] = preEmph;
+    _sampleBuf[_sampleIdx] = centeredSample;
     _sampleIdx = (_sampleIdx + 1) % AFSK_SAMPLES_PER_BIT;
 
     // Correlación en cuadratura sobre la ventana deslizante de 8 muestras
@@ -384,7 +376,7 @@ void AfskModem::processRxSample(int16_t centeredSample) {
     float diff = energyMark - energySpace;
 
     // Filtro pasa-bajos post-detección
-    _lpfCorr = 0.50f * _lpfCorr + 0.50f * diff;
+    _lpfCorr = 0.55f * _lpfCorr + 0.45f * diff;
     bool currentToneMark = (_lpfCorr >= 0.0f);
 
     // Recuperación de reloj (Digital PLL) en transiciones de tono

@@ -70,7 +70,6 @@ private:
     int16_t _sampleBuf[AFSK_SAMPLES_PER_BIT];
     uint8_t _sampleIdx = 0;
     float _dcEstimate = 2048.0f;
-    int16_t _prevCentered = 0;
     float _lpfCorr = 0.0f;
     bool _lastToneMark = true;
     int16_t _pllCounter = 0;
