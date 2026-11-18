@@ -53,7 +53,7 @@ void setup() {
                   GPS_UART_RX_PIN, GPS_UART_TX_PIN, GPS_BAUD_RATE);
     Serial.printf("  Pines SD     -> CS: GPIO %d | SCK: %d | MISO: %d | MOSI: %d\n",
                   SD_PIN_CS, SD_PIN_SCK, SD_PIN_MISO, SD_PIN_MOSI);
-    Serial.println(F("  Comandos USB : 'b'=Baliza, 'l'=Loopback, 'm'=Modo, 'd'=Cambiar Placa ST/ILI, 'w'=WebOTA, 's'=Estado"));
+    Serial.println(F("  Comandos USB : 'b'=Baliza, 'l'=Loopback, 'm'=Modo, 'd'=Placa ST/ILI, 't'=Diag, 'k'=Swap Ejes, 'x'/'y'=Inv X/Y, 'w'=WebOTA"));
     Serial.println(F("  Boton BOOT   : Mantener presionado 2 seg para alternar Placa ILI9341 <-> ST7789"));
     Serial.println(F("============================================================"));
 
@@ -140,6 +140,15 @@ void loop() {
             toggleBoardHardwareProfile();
         } else if (cmd == 't' || cmd == 'T') {
             Ui.touch().printDiagnostics();
+        } else if (cmd == 'k' || cmd == 'K') {
+            Ui.touch().toggleSwapAxes();
+            Serial.printf("[TOUCH] Intercambio de Ejes (Swap X<->Y): %s\n", Ui.touch().getSwapAxes() ? "ACTIVADO" : "DESACTIVADO");
+        } else if (cmd == 'x' || cmd == 'X') {
+            Ui.touch().toggleInvertX();
+            Serial.printf("[TOUCH] Inversion de Eje X: %s\n", Ui.touch().getInvertX() ? "ACTIVADA" : "DESACTIVADA");
+        } else if (cmd == 'y' || cmd == 'Y') {
+            Ui.touch().toggleInvertY();
+            Serial.printf("[TOUCH] Inversion de Eje Y: %s\n", Ui.touch().getInvertY() ? "ACTIVADA" : "DESACTIVADA");
         } else if (cmd == 'w' || cmd == 'W') {
             Updater.startWebPortal(true);
             Ui.requestRedraw();

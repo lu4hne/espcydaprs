@@ -25,7 +25,7 @@ void UiManager::begin() {
     applyDisplayHardware();
     _tft.fillScreen(COL_BG);
 
-    _touch.begin(&_tft);
+    _touch.begin(&_tft, Aprs.config().boardModel == BOARD_MODEL_ILI9341);
     _needsFullRedraw = true;
 }
 
@@ -146,6 +146,7 @@ void UiManager::applyDisplayHardware() {
         _tft.setRotation(1); // 320x240 Horizontal
         _tft.writecommand(cfg.displayInvert ? 0x21 : 0x20);
     }
+    _touch.begin(&_tft, cfg.boardModel == BOARD_MODEL_ILI9341);
     _needsFullRedraw = true;
 }
 

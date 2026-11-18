@@ -24,9 +24,9 @@ copy /Y ".pio\build\esp32-2432s024c\firmware.bin" "docs\firmware\update.bin" >nu
 
 set "ESPTOOL_BIN=%USERPROFILE%\.platformio\packages\tool-esptool\esptool.exe"
 if exist "%ESPTOOL_BIN%" (
-    "%ESPTOOL_BIN%" --chip esp32 merge-bin -o "utils\firmware\ESP32_CYD_APRS_FULL.bin" --flash-mode dio --flash-freq 40m --flash-size 4MB 0x1000 ".pio\build\esp32-2432s024c\bootloader.bin" 0x8000 ".pio\build\esp32-2432s024c\partitions.bin" 0xe000 "%USERPROFILE%\.platformio\packages\framework-arduinoespressif32\tools\partitions\boot_app0.bin" 0x10000 ".pio\build\esp32-2432s024c\firmware.bin"
+    "%ESPTOOL_BIN%" --chip esp32 merge_bin -o "utils\firmware\ESP32_CYD_APRS_FULL.bin" --flash_mode dio --flash_freq 40m --flash_size 4MB 0x1000 ".pio\build\esp32-2432s024c\bootloader.bin" 0x8000 ".pio\build\esp32-2432s024c\partitions.bin" 0xe000 "%USERPROFILE%\.platformio\packages\framework-arduinoespressif32\tools\partitions\boot_app0.bin" 0x10000 ".pio\build\esp32-2432s024c\firmware.bin"
 ) else (
-    "%USERPROFILE%\.platformio\penv\Scripts\python.exe" "%USERPROFILE%\.platformio\packages\tool-esptoolpy\esptool.py" --chip esp32 merge-bin -o "utils\firmware\ESP32_CYD_APRS_FULL.bin" --flash-mode dio --flash-freq 40m --flash-size 4MB 0x1000 ".pio\build\esp32-2432s024c\bootloader.bin" 0x8000 ".pio\build\esp32-2432s024c\partitions.bin" 0xe000 "%USERPROFILE%\.platformio\packages\framework-arduinoespressif32\tools\partitions\boot_app0.bin" 0x10000 ".pio\build\esp32-2432s024c\firmware.bin"
+    "%USERPROFILE%\.platformio\penv\Scripts\python.exe" "%USERPROFILE%\.platformio\packages\tool-esptoolpy\esptool.py" --chip esp32 merge_bin -o "utils\firmware\ESP32_CYD_APRS_FULL.bin" --flash_mode dio --flash_freq 40m --flash_size 4MB 0x1000 ".pio\build\esp32-2432s024c\bootloader.bin" 0x8000 ".pio\build\esp32-2432s024c\partitions.bin" 0xe000 "%USERPROFILE%\.platformio\packages\framework-arduinoespressif32\tools\partitions\boot_app0.bin" 0x10000 ".pio\build\esp32-2432s024c\firmware.bin"
 )
 
 copy /Y "utils\firmware\ESP32_CYD_APRS_FULL.bin" "docs\firmware\ESP32_CYD_APRS_FULL.bin" >nul
