@@ -24,8 +24,6 @@ void UiManager::begin() {
     _tft.init();
     applyDisplayHardware();
     _tft.fillScreen(COL_BG);
-
-    _touch.begin(&_tft, Aprs.config().boardModel == BOARD_MODEL_ILI9341);
     _needsFullRedraw = true;
 }
 
@@ -151,12 +149,17 @@ void UiManager::applyDisplayHardware() {
 }
 
 void UiManager::update() {
-    // 1. Leer entrada táctil con anti-rebote
-    uint16_t tx = 0, ty = 0;
-    if (millis() - _lastTouchMs > 180) {
-        if (_touch.getTouch(&tx, &ty, 1)) {
-            _lastTouchMs = millis();
-            handleTouch(tx, ty);
+    // 1. Leer entrada táctil (muestreo cada 25 ms = 40 Hz para no saturar pines ADC1/I2C ni interferir con el módem AFSK)
+    static uint32_t s_lastTouchPollMs = 0;
+    uint32_t nowMs = millis();
+    if (nowMs - s_lastTouchPollMs >= 25) {
+        s_lastTouchPollMs = nowMs;
+        if (nowMs - _lastTouchMs > 180) {
+            uint16_t tx = 0, ty = 0;
+            if (_touch.getTouch(&tx, &ty, 1)) {
+                _lastTouchMs = nowMs;
+                handleTouch(tx, ty);
+            }
         }
     }
 

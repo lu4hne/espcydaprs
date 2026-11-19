@@ -167,18 +167,17 @@ uint16_t CST820Touch::xptRead12(uint8_t cmd) {
 bool CST820Touch::readDedicatedXpt2046(uint16_t* rawX, uint16_t* rawY, uint16_t* rawZ) {
     // 1. Pin de hardware T_IRQ (GPIO 36):
     // Cuando no se toca la pantalla, T_IRQ esta en HIGH (pull-up a 3.3V).
-    // Al presionar la pantalla, PENIRQ del XPT2046 conmuta a LOW.
-    bool irqActive = (digitalRead(XPT2046_IRQ_PIN) == LOW);
+    // Salir inmediatamente SIN conmutar los pines SPI (GPIO 25/32/33/39) para no inyectar
+    // ruido de conmutacion en el banco ADC1 / GPIO 35 (entrada de audio RX del modem AFSK).
+    if (digitalRead(XPT2046_IRQ_PIN) != LOW) {
+        return false;
+    }
 
-    // 2. Medir presion Z1 y Z2
+    // 2. Medir presion Z1 y Z2 (solo cuando hay toque fisico real en T_IRQ)
     uint16_t z1 = xptRead12(0xB0);
     uint16_t z2 = xptRead12(0xC0);
     int32_t z = (int32_t)z1 + 4095 - (int32_t)z2;
 
-    // Si IRQ esta en HIGH y la presion es nula o muy baja (< 150), no hay toque fisico
-    if (!irqActive && z < 150) {
-        return false;
-    }
     // Descartar toques con presion inferior al umbral minimo
     if (z < 80) {
         return false;
