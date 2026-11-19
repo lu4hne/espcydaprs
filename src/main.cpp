@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <soc/soc.h>
 #include <soc/rtc_cntl_reg.h>
+#include <nvs_flash.h>
 #include "config.h"
 #include "afsk_modem.h"
 #include "ax25_aprs.h"
@@ -33,6 +34,14 @@ void setup() {
     Serial.begin(115200);
     delay(200);
     pinMode(CYD_BOOT_BTN_PIN, INPUT_PULLUP);
+
+    // Inicializar Flash NVS asegurando partición íntegra y libre de páginas corruptas
+    esp_err_t nvsErr = nvs_flash_init();
+    if (nvsErr == ESP_ERR_NVS_NO_FREE_PAGES || nvsErr == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        Serial.println(F("[NVS] Advertencia: Partición NVS truncada o sin espacio. Reindexando..."));
+        nvs_flash_erase();
+        nvs_flash_init();
+    }
 
     // 1. Iniciar Motor AX.25 / APRS y cargar configuración desde NVS primero
     //    (para conocer el modelo de placa ILI9341/ST7789 y el pin de TX elegido)

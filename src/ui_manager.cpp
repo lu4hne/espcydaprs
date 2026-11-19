@@ -873,10 +873,10 @@ void UiManager::drawConfig(bool fullRedraw) {
 
     } else if (_cfgPage == 1) {
         // Página 2: Modelo de Placa (ILI9341 vs ST7789), Pin de Audio TX, Preset Radio, Delay, Vol, Baliza, Digi
-        // Fila 1 (y=52..86): Modelo de Placa y Pin de Salida Audio TX (en conector blanco + IO26)
+        // Fila 1 (y=52..86): Modelo de Placa (informativo) y Pin de Salida Audio TX (conector + IO26)
         _tft.fillRoundRect(6, 52, 146, 34, 3, COL_CARD);
-        _tft.drawRoundRect(6, 52, 146, 34, 3, COL_ACCENT);
-        _tft.setTextColor(COL_YELLOW, COL_CARD);
+        _tft.drawRoundRect(6, 52, 146, 34, 3, COL_BORDER);
+        _tft.setTextColor(COL_MUTED, COL_CARD);
         _tft.drawCentreString(cfg.boardModel == BOARD_MODEL_ST7789 ? "Placa: ST7789" : "Placa: ILI9341", 79, 61, 2);
 
         _tft.fillRoundRect(158, 52, 156, 34, 3, COL_CARD);
@@ -1383,6 +1383,7 @@ void UiManager::handleKeyboardTouch(uint16_t tx, uint16_t ty) {
 
 void UiManager::commitKeyboardValue() {
     AprsConfig& cfg = Aprs.config();
+    bool isCfg = false;
     switch (_kbTarget) {
         case KB_MSG_TO:
             strlcpy(_composeTo, _kbBuffer, sizeof(_composeTo));
@@ -1394,37 +1395,51 @@ void UiManager::commitKeyboardValue() {
         case KB_CFG_CALLSIGN:
             strlcpy(cfg.callsign, _kbBuffer, sizeof(cfg.callsign));
             for (int i = 0; cfg.callsign[i]; i++) cfg.callsign[i] = (char)toupper((unsigned char)cfg.callsign[i]);
+            isCfg = true;
             break;
         case KB_CFG_COMMENT:
             strlcpy(cfg.comment, _kbBuffer, sizeof(cfg.comment));
+            isCfg = true;
             break;
         case KB_CFG_LAT:
             cfg.fixedLat = atof(_kbBuffer);
+            isCfg = true;
             break;
         case KB_CFG_LON:
             cfg.fixedLon = atof(_kbBuffer);
+            isCfg = true;
             break;
         case KB_CFG_WIFI_SSID:
             strlcpy(cfg.wifiSsid, _kbBuffer, sizeof(cfg.wifiSsid));
+            isCfg = true;
             break;
         case KB_CFG_WIFI_PASS:
             strlcpy(cfg.wifiPass, _kbBuffer, sizeof(cfg.wifiPass));
+            isCfg = true;
             break;
         case KB_CFG_APRS_SERVER:
             strlcpy(cfg.aprsIsServer, _kbBuffer, sizeof(cfg.aprsIsServer));
+            isCfg = true;
             break;
         case KB_CFG_APRS_PASSCODE:
             cfg.aprsIsPasscode = atoi(_kbBuffer);
+            isCfg = true;
             break;
         case KB_CFG_OTA_URL:
             strlcpy(cfg.otaServerUrl, _kbBuffer, sizeof(cfg.otaServerUrl));
+            isCfg = true;
             break;
         case KB_CFG_EMERG_DEST:
             strlcpy(cfg.emergMsgDest, _kbBuffer, sizeof(cfg.emergMsgDest));
             for (int i = 0; cfg.emergMsgDest[i]; i++) cfg.emergMsgDest[i] = (char)toupper((unsigned char)cfg.emergMsgDest[i]);
+            isCfg = true;
             break;
         default:
             break;
+    }
+    if (isCfg) {
+        Aprs.saveConfig();
+        showToast("Config guardada!", COL_GREEN);
     }
 }
 
@@ -1447,6 +1462,9 @@ void UiManager::handleTouch(uint16_t tx, uint16_t ty) {
         int tabIdx = tx / (320 / 5);
         if (tabIdx > 4) tabIdx = 4;
         if (tabIdx >= 0 && tabIdx <= 4) {
+            if (_currentTab == TAB_CONFIG && (UiTab)tabIdx != TAB_CONFIG) {
+                Aprs.saveConfig();
+            }
             _currentTab = (UiTab)tabIdx;
             if (_currentTab == TAB_MESSAGES) {
                 Aprs.clearUnreadMessages();
@@ -1479,6 +1497,7 @@ void UiManager::handleDashboardTouch(uint16_t tx, uint16_t ty) {
         AprsConfig& cfg = Aprs.config();
         StationMode nextMode = (StationMode)((cfg.stationMode + 1) % 3);
         Aprs.applyStationMode(nextMode);
+        Aprs.saveConfig();
         Igate.reconnectNow();
         _needsFullRedraw = true;
         return;
@@ -1502,6 +1521,7 @@ void UiManager::handleDashboardTouch(uint16_t tx, uint16_t ty) {
             } else if (tx >= 160 && tx <= 234) {
                 // [AUTO]
                 cfg.autoBeacon = !cfg.autoBeacon;
+                Aprs.saveConfig();
                 _needsFullRedraw = true;
             } else if (tx >= 238) {
                 // [SOS]
@@ -1527,6 +1547,7 @@ void UiManager::handleDashboardTouch(uint16_t tx, uint16_t ty) {
             } else if (tx >= 224) {
                 // [AUTO BCN ON/OFF]
                 cfg.autoBeacon = !cfg.autoBeacon;
+                Aprs.saveConfig();
                 _needsFullRedraw = true;
             }
         }
@@ -1609,13 +1630,14 @@ void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
     AprsConfig& cfg = Aprs.config();
 
     // Botones de barra superior de Config: [PAG x/7] y [GUARDAR]
-    if (ty >= 24 && ty <= 48) {
-        if (tx >= 180 && tx <= 251) {
+    if (ty <= 50) {
+        if (tx >= 180 && tx <= 245) {
+            Aprs.saveConfig();
             _cfgPage = (_cfgPage + 1) % 7;
             _needsFullRedraw = true;
             return;
         }
-        if (tx >= 252) {
+        if (tx >= 246) {
             Aprs.saveConfig();
             Igate.reconnectNow();
             showToast("Configuracion guardada en Flash NVS!", COL_GREEN);
@@ -1629,6 +1651,7 @@ void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
         if (ty >= 52 && ty <= 86) {
             StationMode nextMode = (StationMode)((cfg.stationMode + 1) % 3);
             Aprs.applyStationMode(nextMode);
+            Aprs.saveConfig();
             applyDisplayHardware();
             _needsFullRedraw = true;
             return;
@@ -1639,6 +1662,7 @@ void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
                 openKeyboard(KB_CFG_CALLSIGN, "TU INDICATIVO (SIN SSID):", cfg.callsign, 6);
             } else if (tx < 218) {
                 cfg.ssid = (cfg.ssid + 1) % 16;
+                Aprs.saveConfig();
                 _needsFullRedraw = true;
             } else {
                 if (cfg.symbolCode == '[')      { cfg.symbolTable = '/'; cfg.symbolCode = '>'; }
@@ -1646,6 +1670,7 @@ void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
                 else if (cfg.symbolCode == '&') { cfg.symbolTable = '/'; cfg.symbolCode = '-'; }
                 else if (cfg.symbolCode == '-') { cfg.symbolTable = '/'; cfg.symbolCode = 'k'; }
                 else                            { cfg.symbolTable = '/'; cfg.symbolCode = '['; }
+                Aprs.saveConfig();
                 _needsFullRedraw = true;
             }
             return;
@@ -1654,6 +1679,7 @@ void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
         if (ty >= 130 && ty <= 164) {
             if (tx < 90) {
                 cfg.posMode = (cfg.posMode == POS_MODE_FIXED) ? POS_MODE_GPS : POS_MODE_FIXED;
+                Aprs.saveConfig();
                 applyDisplayHardware();
                 _needsFullRedraw = true;
                 return;
@@ -1677,21 +1703,28 @@ void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
     } else if (_cfgPage == 1) {
         // Página 2: Modelo de Placa / Pin TX / Radio Preset / TX Delay / TX Volume / Intervalo / Auto-ACK / Digi
         if (ty >= 52 && ty <= 86) {
-            if (tx < 155) {
-                BoardModel nextBoard = (cfg.boardModel == BOARD_MODEL_ILI9341) ? BOARD_MODEL_ST7789 : BOARD_MODEL_ILI9341;
-                Aprs.applyBoardModel(nextBoard);
-                applyDisplayHardware();
-            } else {
-                // Ciclar Pin Audio TX entre los pines disponibles en los conectores blancos de ambos modelos:
-                // 27 (ILI9341 CN1) -> 21 (ILI9341 P3) -> 4 (ST7789 P3) -> 17 (ST7789 P3) -> 26 (SPK P4)
-                if (cfg.txAudioPin == 27) cfg.txAudioPin = 21;
-                else if (cfg.txAudioPin == 21) cfg.txAudioPin = 4;
-                else if (cfg.txAudioPin == 4) cfg.txAudioPin = 17;
-                else if (cfg.txAudioPin == 17) cfg.txAudioPin = 26;
-                else cfg.txAudioPin = 27;
+            // "Placa: ILI9341 / ST7789" es informativo para evitar cambiar de driver por error táctil.
+            // Para alternar perfil de placa se usa el botón físico BOOT (2 seg) o comando 'd' por USB.
+            if (tx >= 150) {
+                // Ciclar Pin Audio TX según los pines físicos disponibles en cada placa:
+                if (cfg.boardModel == BOARD_MODEL_ILI9341) {
+                    // ILI9341: IO27 (CN1) <-> IO26 (SPK) <-> IO21 (P3)
+                    if (cfg.txAudioPin == 27) cfg.txAudioPin = 26;
+                    else if (cfg.txAudioPin == 26) cfg.txAudioPin = 21;
+                    else cfg.txAudioPin = 27;
+                } else {
+                    // ST7789: IO21 (CN1) <-> IO4 (P3) <-> IO17 (P3) <-> IO26 (SPK)
+                    if (cfg.txAudioPin == 21) cfg.txAudioPin = 4;
+                    else if (cfg.txAudioPin == 4) cfg.txAudioPin = 17;
+                    else if (cfg.txAudioPin == 17) cfg.txAudioPin = 26;
+                    else cfg.txAudioPin = 21;
+                }
 
                 Modem.configure(cfg.txDelayMs, cfg.txTailMs, cfg.txVolume, cfg.txAudioPin);
-                applyDisplayHardware();
+                Aprs.saveConfig();
+                char pinToast[32];
+                snprintf(pinToast, sizeof(pinToast), "Audio TX en IO%u", cfg.txAudioPin);
+                showToast(pinToast, COL_GREEN);
             }
             _needsFullRedraw = true;
             return;
@@ -1700,16 +1733,19 @@ void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
             if (tx < 110) {
                 RadioType nextType = (cfg.radioType == RADIO_BAOFENG) ? RADIO_YAESU : RADIO_BAOFENG;
                 Aprs.applyRadioPreset(nextType);
+                Aprs.saveConfig();
             } else if (tx < 218) {
                 cfg.txDelayMs += 100;
                 if (cfg.txDelayMs > 750) cfg.txDelayMs = 200;
                 cfg.radioType = RADIO_CUSTOM;
                 Modem.configure(cfg.txDelayMs, cfg.txTailMs, cfg.txVolume, cfg.txAudioPin);
+                Aprs.saveConfig();
             } else {
                 cfg.txVolume += 15;
                 if (cfg.txVolume > 100) cfg.txVolume = 25;
                 cfg.radioType = RADIO_CUSTOM;
                 Modem.configure(cfg.txDelayMs, cfg.txTailMs, cfg.txVolume, cfg.txAudioPin);
+                Aprs.saveConfig();
             }
             _needsFullRedraw = true;
             return;
@@ -1724,11 +1760,13 @@ void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
             } else {
                 cfg.autoAckMessages = !cfg.autoAckMessages;
             }
+            Aprs.saveConfig();
             _needsFullRedraw = true;
             return;
         }
         if (ty >= 169 && ty <= 205) {
             cfg.digipeatWide1 = !cfg.digipeatWide1;
+            Aprs.saveConfig();
             _needsFullRedraw = true;
             return;
         }
@@ -1760,6 +1798,7 @@ void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
             } else {
                 cfg.igateBeaconMode = (cfg.igateBeaconMode + 1) % 3;
             }
+            Aprs.saveConfig();
             _needsFullRedraw = true;
             return;
         }
@@ -1821,6 +1860,7 @@ void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
                 cfg.sensorPinProfile = (cfg.sensorPinProfile + 1) % 3;
             }
             Sensors.forceDetectAndRead();
+            Aprs.saveConfig();
             _needsFullRedraw = true;
             return;
         }
@@ -1837,6 +1877,7 @@ void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
                 if (cfg.tempOffsetC > 15.0f) cfg.tempOffsetC = 15.0f;
                 Sensors.forceDetectAndRead();
             }
+            Aprs.saveConfig();
             _needsFullRedraw = true;
             return;
         }
@@ -1855,12 +1896,14 @@ void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
             if (cfg.emergIntervalSec == 60) cfg.emergIntervalSec = 120;
             else if (cfg.emergIntervalSec == 120) cfg.emergIntervalSec = 180;
             else cfg.emergIntervalSec = 60;
+            Aprs.saveConfig();
             _needsFullRedraw = true;
             return;
         }
         // Fila 2 (y=91..125): Mensaje Directo SI / NO
         if (ty >= 91 && ty <= 125) {
             cfg.emergSendDirectMsg = !cfg.emergSendDirectMsg;
+            Aprs.saveConfig();
             _needsFullRedraw = true;
             return;
         }
@@ -1872,6 +1915,7 @@ void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
         // Fila 4 (y=169..205): Alerta Sonora Parlante
         if (ty >= 169 && ty <= 205) {
             cfg.emergSoundAlert = !cfg.emergSoundAlert;
+            Aprs.saveConfig();
             _needsFullRedraw = true;
             return;
         }

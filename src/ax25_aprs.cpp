@@ -33,7 +33,10 @@ void AprsEngine::begin() {
 
 void AprsEngine::loadConfig() {
     Preferences prefs;
-    prefs.begin("aprs_cfg", true);
+    if (!prefs.begin("aprs_cfg", false)) {
+        Serial.println(F("[CONFIG] ERROR: No se pudo abrir NVS 'aprs_cfg'!"));
+        return;
+    }
 
     // Si aún no hay modelo guardado en NVS, auto-detectar por MAC de la placa (o usar ST7789 en la de 1 USB)
     uint8_t defaultBoard = BOARD_MODEL_ST7789;
@@ -41,6 +44,59 @@ void AprsEngine::loadConfig() {
     // La placa ILI9341 (MAC 80:F3:DA:BA:DA:84 -> byte bajo 0x80) arranca en ILI9341; la de 1 USB (68:09:47...) en ST7789
     if ((efuseMac & 0xFF) == 0x80) {
         defaultBoard = BOARD_MODEL_ILI9341;
+    }
+
+    if (!prefs.isKey("call")) {
+        Serial.println(F("[CONFIG] NVS sin datos previos ('call' no existe). Guardando configuración inicial por defecto..."));
+        _cfg.boardModel = defaultBoard;
+        _cfg.displayInvert = false;
+        _cfg.txAudioPin = (_cfg.boardModel == BOARD_MODEL_ST7789) ? 21 : 27;
+        _cfg.stationMode = STATION_MODE_TRACKER;
+        strlcpy(_cfg.callsign, "LU4HNE", sizeof(_cfg.callsign));
+        _cfg.ssid = 7;
+        strlcpy(_cfg.destCall, "APECYD", sizeof(_cfg.destCall));
+        strlcpy(_cfg.path1, "WIDE1", sizeof(_cfg.path1));
+        _cfg.path1Ssid = 1;
+        strlcpy(_cfg.path2, "WIDE2", sizeof(_cfg.path2));
+        _cfg.path2Ssid = 1;
+        _cfg.symbolTable = '/';
+        _cfg.symbolCode  = '[';
+        strlcpy(_cfg.comment, "ESP32 CYD APRS 1200bps", sizeof(_cfg.comment));
+        _cfg.fixedLat = -34.6037;
+        _cfg.fixedLon = -58.3816;
+        _cfg.fixedAltMeters = 25;
+        _cfg.posMode = POS_MODE_FIXED;
+        _cfg.autoBeacon = false;
+        _cfg.beaconIntervalSec = 300;
+        _cfg.radioType = RADIO_BAOFENG;
+        _cfg.txDelayMs = 450;
+        _cfg.txTailMs  = 60;
+        _cfg.txVolume  = 75;
+        _cfg.autoAckMessages = true;
+        _cfg.digipeatWide1   = false;
+        strlcpy(_cfg.wifiSsid, "", sizeof(_cfg.wifiSsid));
+        strlcpy(_cfg.wifiPass, "", sizeof(_cfg.wifiPass));
+        _cfg.igateEnabled = false;
+        strlcpy(_cfg.aprsIsServer, "rotate.aprs2.net", sizeof(_cfg.aprsIsServer));
+        _cfg.aprsIsPort = 14580;
+        _cfg.aprsIsPasscode = -1;
+        _cfg.igateBeaconMode = IGATE_BCN_BOTH;
+        _cfg.igateIsToRfMsg = true;
+        strlcpy(_cfg.otaServerUrl, "", sizeof(_cfg.otaServerUrl));
+        _cfg.ledBrightness = 1;
+        _cfg.tftBrightness = 100;
+        _cfg.sensorModel = SENSOR_AUTO_I2C;
+        _cfg.sensorPinProfile = SENSOR_PINS_16_17;
+        _cfg.sensorBeaconMode = SENSOR_BCN_COMMENT;
+        _cfg.tempOffsetC = 0.0f;
+        _cfg.humOffsetPct = 0.0f;
+        _cfg.emergIntervalSec = 120;
+        _cfg.emergSendDirectMsg = false;
+        strlcpy(_cfg.emergMsgDest, "", sizeof(_cfg.emergMsgDest));
+        _cfg.emergSoundAlert = false;
+        prefs.end();
+        saveConfig();
+        return;
     }
 
     _cfg.boardModel = prefs.getUChar("brdMod", defaultBoard);
@@ -111,6 +167,11 @@ void AprsEngine::loadConfig() {
     _cfg.emergSoundAlert    = prefs.getBool("emgSnd", false);
 
     prefs.end();
+
+    Serial.printf("[CONFIG] NVS Cargado OK: Call: %s-%u | Placa: %s | TX Pin: %u | Modo: %u | BeaconInt: %u s\n",
+                  _cfg.callsign, _cfg.ssid,
+                  (_cfg.boardModel == BOARD_MODEL_ST7789) ? "ST7789" : "ILI9341",
+                  _cfg.txAudioPin, _cfg.stationMode, _cfg.beaconIntervalSec);
 }
 
 void AprsEngine::saveConfig() {
@@ -118,7 +179,10 @@ void AprsEngine::saveConfig() {
         _cfg.txAudioPin = 21;
     }
     Preferences prefs;
-    prefs.begin("aprs_cfg", false);
+    if (!prefs.begin("aprs_cfg", false)) {
+        Serial.println(F("[CONFIG] ERROR: No se pudo abrir NVS 'aprs_cfg' para guardar!"));
+        return;
+    }
 
     prefs.putUChar("brdMod", _cfg.boardModel);
     prefs.putBool("dispInv", _cfg.displayInvert);
@@ -173,6 +237,10 @@ void AprsEngine::saveConfig() {
 
     prefs.end();
     Modem.configure(_cfg.txDelayMs, _cfg.txTailMs, _cfg.txVolume, _cfg.txAudioPin);
+    Serial.printf("[CONFIG] NVS Guardado OK: Call: %s-%u | Placa: %s | TX Pin: %u | Modo: %u | BeaconInt: %u s\n",
+                  _cfg.callsign, _cfg.ssid,
+                  (_cfg.boardModel == BOARD_MODEL_ST7789) ? "ST7789" : "ILI9341",
+                  _cfg.txAudioPin, _cfg.stationMode, _cfg.beaconIntervalSec);
 }
 
 void AprsEngine::applyBoardModel(BoardModel model) {
