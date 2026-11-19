@@ -796,14 +796,15 @@ void UiManager::drawConfig(bool fullRedraw) {
 
     char nextLbl[16];
     snprintf(nextLbl, sizeof(nextLbl), "PAG %u/7 >", (_cfgPage % 7) + 1);
-    _tft.fillRoundRect(184, 25, 66, 22, 3, COL_HEADER);
-    _tft.drawRoundRect(184, 25, 66, 22, 3, COL_BORDER);
+    _tft.fillRoundRect(168, 23, 72, 26, 4, COL_HEADER);
+    _tft.drawRoundRect(168, 23, 72, 26, 4, COL_BORDER);
     _tft.setTextColor(COL_WHITE, COL_HEADER);
-    _tft.drawCentreString(nextLbl, 217, 28, 2);
+    _tft.drawCentreString(nextLbl, 204, 28, 2);
 
-    _tft.fillRoundRect(254, 25, 62, 22, 3, COL_GREEN);
+    _tft.fillRoundRect(244, 23, 72, 26, 4, COL_GREEN);
+    _tft.drawRoundRect(244, 23, 72, 26, 4, COL_WHITE);
     _tft.setTextColor(COL_BG, COL_GREEN);
-    _tft.drawCentreString("GUARDAR", 285, 28, 2);
+    _tft.drawCentreString("GUARDAR", 280, 28, 2);
 
     if (_cfgPage == 0) {
         // Página 1: Rol del Equipo (Tracker vs Estación Fija + IGate vs Fija RF), Indicativo, Posición, Coordenadas
@@ -1227,17 +1228,18 @@ void UiManager::drawKeyboard() {
     _tft.fillScreen(COL_BG);
 
     // Barra superior de título y botones [ESC] / [OK]
-    _tft.fillRect(0, 0, 320, 26, COL_HEADER);
+    _tft.fillRect(0, 0, 320, 28, COL_HEADER);
     _tft.setTextColor(COL_ACCENT, COL_HEADER);
     _tft.drawString(_kbTitle, 8, 5, 2);
 
-    _tft.fillRoundRect(208, 3, 50, 20, 3, COL_RED);
+    _tft.fillRoundRect(204, 2, 52, 24, 3, COL_RED);
     _tft.setTextColor(COL_WHITE, COL_RED);
-    _tft.drawCentreString("ESC", 233, 5, 2);
+    _tft.drawCentreString("ESC", 230, 6, 2);
 
-    _tft.fillRoundRect(264, 3, 50, 20, 3, COL_GREEN);
+    _tft.fillRoundRect(260, 2, 56, 24, 3, COL_GREEN);
+    _tft.drawRoundRect(260, 2, 56, 24, 3, COL_WHITE);
     _tft.setTextColor(COL_BG, COL_GREEN);
-    _tft.drawCentreString("OK", 289, 5, 2);
+    _tft.drawCentreString("OK", 288, 6, 2);
 
     // Caja de texto actual
     _tft.fillRoundRect(6, 30, 308, 28, 3, COL_CARD);
@@ -1307,14 +1309,14 @@ void UiManager::drawKeyboard() {
 }
 
 void UiManager::handleKeyboardTouch(uint16_t tx, uint16_t ty) {
-    // Botones superiores ESC y OK
-    if (ty < 28) {
-        if (tx >= 204 && tx <= 260) {
+    // Botones superiores ESC y OK (zona superior hasta y <= 35)
+    if (ty <= 35) {
+        if (tx >= 195 && tx <= 255) {
             _kbTarget = KB_NONE;
             _needsFullRedraw = true;
             return;
         }
-        if (tx >= 262) {
+        if (tx >= 256) {
             commitKeyboardValue();
             _kbTarget = KB_NONE;
             _needsFullRedraw = true;
@@ -1629,26 +1631,29 @@ void UiManager::handleStationsTouch(uint16_t tx, uint16_t ty) {
 void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
     AprsConfig& cfg = Aprs.config();
 
-    // Botones de barra superior de Config: [PAG x/7] y [GUARDAR]
-    if (ty <= 50) {
-        if (tx >= 180 && tx <= 245) {
+    // Barra superior de Config: Título, [PAG x/7] y [GUARDAR] (y <= 52)
+    if (ty <= 52) {
+        if (tx >= 240) {
+            // [GUARDAR] - Persistir absolutamente toda la configuración global en Flash NVS
+            Aprs.saveConfig();
+            Igate.reconnectNow();
+            showToast("Config guardada en Flash NVS!", COL_GREEN);
+            _needsFullRedraw = true;
+            return;
+        }
+        if (tx >= 165 && tx < 240) {
+            // [PAG x/7 >] - Auto-guardar lo modificado y pasar de pantalla
             Aprs.saveConfig();
             _cfgPage = (_cfgPage + 1) % 7;
             _needsFullRedraw = true;
             return;
         }
-        if (tx >= 246) {
-            Aprs.saveConfig();
-            Igate.reconnectNow();
-            showToast("Configuracion guardada en Flash NVS!", COL_GREEN);
-            _needsFullRedraw = true;
-            return;
-        }
+        return; // Toques en el título (tx < 165) no hacen nada (previene falsos toques a la fila 1)
     }
 
     if (_cfgPage == 0) {
-        // Fila 1 (y=52..86): Selector de Modo Operativo (Tracker / Estación Fija + IGate / Fija RF)
-        if (ty >= 52 && ty <= 86) {
+        // Fila 1 (y=55..88): Selector de Modo Operativo (Tracker / Estación Fija + IGate / Fija RF)
+        if (ty >= 55 && ty <= 88) {
             StationMode nextMode = (StationMode)((cfg.stationMode + 1) % 3);
             Aprs.applyStationMode(nextMode);
             Aprs.saveConfig();
@@ -1702,7 +1707,7 @@ void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
 
     } else if (_cfgPage == 1) {
         // Página 2: Modelo de Placa / Pin TX / Radio Preset / TX Delay / TX Volume / Intervalo / Auto-ACK / Digi
-        if (ty >= 52 && ty <= 86) {
+        if (ty >= 55 && ty <= 88) {
             // "Placa: ILI9341 / ST7789" es informativo para evitar cambiar de driver por error táctil.
             // Para alternar perfil de placa se usa el botón físico BOOT (2 seg) o comando 'd' por USB.
             if (tx >= 150) {
@@ -1773,7 +1778,7 @@ void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
 
     } else if (_cfgPage == 2) {
         // Página 3: WiFi e IGate APRS-IS
-        if (ty >= 52 && ty <= 86) {
+        if (ty >= 55 && ty <= 88) {
             if (tx < 176) {
                 openKeyboard(KB_CFG_WIFI_SSID, "NOMBRE RED WIFI (SSID):", cfg.wifiSsid, 32);
             } else {
@@ -1812,7 +1817,7 @@ void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
 
     } else if (_cfgPage == 3) {
         // Página 4: Actualización por MicroSD y Web OTA
-        if (ty >= 52 && ty <= 86) {
+        if (ty >= 55 && ty <= 88) {
             showToast("Escaneando tarjeta MicroSD...", COL_ACCENT);
             Updater.scanSdBinaries();
             _needsFullRedraw = true;
@@ -1891,8 +1896,8 @@ void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
 
     } else if (_cfgPage == 5) {
         // Página 6: Parámetros del Aviso de Emergencia (SOS)
-        // Fila 1 (y=52..86): Intervalo Baliza SOS (ciclo 60s -> 120s -> 180s)
-        if (ty >= 52 && ty <= 86) {
+        // Fila 1 (y=55..88): Intervalo Baliza SOS (ciclo 60s -> 120s -> 180s)
+        if (ty >= 55 && ty <= 88) {
             if (cfg.emergIntervalSec == 60) cfg.emergIntervalSec = 120;
             else if (cfg.emergIntervalSec == 120) cfg.emergIntervalSec = 180;
             else cfg.emergIntervalSec = 60;
@@ -2087,4 +2092,5 @@ void UiManager::showToast(const char* msg, uint16_t bgColor) {
     uint16_t fg = (bgColor == COL_RED || bgColor == COL_HEADER) ? COL_WHITE : COL_BG;
     _tft.setTextColor(fg, bgColor);
     _tft.drawCentreString(msg, 160, 102, 2);
+    delay(450);
 }
