@@ -1,4 +1,4 @@
-# ESP32 CYD (`ESP32-2432S024C` / `ESP32-2432S028R`) — Transceptor APRS 1200 bps / Tracker / Estación Fija + IGate + Estación Meteorológica WX (`v1.6.3`)
+# ESP32 CYD (`ESP32-2432S024C` / `ESP32-2432S028R`) — Transceptor APRS 1200 bps / Tracker / Estación Fija + IGate + Estación Meteorológica WX (`v1.6.4`)
 
 Aplicación completa de **codificación y decodificación APRS a 1200 baudios (AFSK Bell 202 / AX.25)** con **IGate APRS-IS bidireccional por WiFi**, **telemetría meteorológica (`BMP280 / BME280 / AHT20 / DHT22 / DHT11`)** y **actualización de firmware por MicroSD y Web OTA**, diseñada para la familia de placas **ESP32 Cheap Yellow Display (CYD)** tanto en sus variantes con controlador **`ILI9341`** como **`ST7789` (1-USB)** y paneles táctiles **`CST820` (I2C)** o **`XPT2046` (SPI dedicado o compartido)**.
 
@@ -261,20 +261,22 @@ La barra inferior mantiene **5 botones amplios dedicados a la operación de radi
    * **Autoprueba de ACK:** Si envías un mensaje a tu propio indicativo (`LU4HNE-10`), el sistema valida el ciclo completo y confirma `ACK OK` en verde.
 4. **`ESTAC` (Directorio de Estaciones Escuchadas):**
    * Lista de estaciones únicas con distancia, acimut, coordenadas y cantidad de paquetes.
-5. **`CONF` (Configuración Unificada en 6 Páginas + Guardado en Flash NVS):**
-   * **Página 1 (`1/6: MODO Y ESTACION`):** Selector de Rol (`TRACKER MOVIL`, `ESTACION FIJA + IGATE`, `ESTACION FIJA SOLO RF`), Indicativo, SSID (`-0` a `-15`), Símbolo (`IGate I&`, `Handy`, `Auto`, `Casa`, `Camión`), fuente de posición (`FIJA` / `GPS`), Latitud, Longitud y Comentario.
-   * **Página 2 (`2/6: RADIO Y BALIZA`):** Modelo de **`Placa: ILI9341 / ST7789`**, **`Pin TX`**, selector de preset **`BAOFENG`** / **`YAESU`**, `TX Delay (ms)`, `Nivel TX (%)`, intervalo de baliza (`60s` a `900s`), `Auto-ACK` y `Digipeater WIDE1-1`.
-   * **Página 3 (`3/6: WIFI E IGATE`):** SSID y Clave WiFi (con teclado alfanumérico + símbolos `#?=`), servidor APRS-IS (`samerica.aprs2.net` / `rotate.aprs2.net`), `Passcode` (calculado automáticamente desde tu indicativo o manual), modo de baliza IGate (`RF + IS`, `SOLO IS`, `SOLO RF`) y botón **`[CONECTAR]`**.
-   * **Página 4 (`4/6: SD Y WEB OTA`):**
+5. **`CONF` (Configuración Unificada en 7 Páginas + Auto-Guardado en Flash NVS):**
+   * **Página 1 (`1/7: MODO Y ESTACION`):** Selector de Rol (`TRACKER MOVIL`, `ESTACION FIJA + IGATE`, `ESTACION FIJA SOLO RF`), Indicativo, SSID (`-0` a `-15`), Símbolo (`IGate I&`, `Handy`, `Auto`, `Casa`, `Camión`), fuente de posición (`FIJA` / `GPS`), Latitud, Longitud y Comentario.
+   * **Página 2 (`2/7: RADIO Y BALIZA`):** Modelo de Placa (`ILI9341` / `ST7789`), botón compacto **`NORM / INV`** para **inversión de colores TFT** (`TFT_INVOFF` / `TFT_INVON`, también configurable por comando serie `'i'`, toque rápido en `CONF 7/7` o desde el Portal Web OTA), **`TX Pin`**, selector de preset **`BAOFENG`** / **`YAESU`**, `TX Delay (ms)`, `Nivel TX (%)`, intervalo de baliza (`60s` a `900s`), `Auto-ACK` y `Digipeater WIDE1-1`.
+   * **Página 3 (`3/7: WIFI E IGATE`):** SSID y Clave WiFi (con teclado alfanumérico + símbolos `#?=`), servidor APRS-IS (`rotate.aprs2.net` / `samerica.aprs2.net`), `Passcode` (calculado automáticamente desde tu indicativo o manual), modo de baliza IGate (`RF + IS`, `SOLO IS`, `SOLO RF`) y botón **`[CONECTAR]`**.
+   * **Página 4 (`4/7: SD Y WEB OTA`):**
      * **`[ESCANEAR SD]` / `[INSTALAR SD]`:** Busca e instala archivos `.bin` desde la tarjeta MicroSD con barra de progreso en pantalla.
      * **`[OTA URL]`:** Descarga e instala actualizaciones remotas por HTTP/HTTPS.
-     * **`[PORTAL WEB / AP WIFI OTA]`:** Inicia el servidor web de configuración y actualización OTA en `http://<IP>` (o crea el punto de acceso WiFi `CYD-APRS-<INDICATIVO>` en `http://192.168.4.1`).
-   * **Página 5 (`5/6: SENSORES CLIMA`):**
+     * **`[PORTAL WEB / AP WIFI OTA]`:** Inicia el servidor web de configuración (incluyendo inversión de color TFT) y actualización OTA en `http://<IP>` (o crea el punto de acceso WiFi `CYD-APRS-<INDICATIVO>` en `http://192.168.4.1`).
+   * **Página 5 (`5/7: SENSORES CLIMA`):**
      * Estado en vivo de **Temperatura (`°C`)**, **Humedad (`%`)** y **Presión (`hPa`)**.
      * Selector de **`Tipo`** de sensor (`AUTO I2C`, `BMP/BME280`, `AHT10/20`, `DHT22`, `DHT11`, `DESACTIVADO`), **`Pines`** (`P3 SDA=16 SCL=17`, `CN1 21/22`, `CN1 27/22`), modo de envío en **`Baliza`** (`COMENTARIO`, `WX OFICIAL /_`, `NO INFORMAR`), calibración de **`Offset Temp`** (`-0.5°C` / `+0.5°C`) y botón **`[DETECTAR]`**.
      * Si el sensor no está conectado, las balizas APRS omiten automáticamente cualquier dato meteorológico.
-   * **Página 6 (`6/6: CREDITOS Y VERSION` — Siempre la última página / About):**
-     * Muestra créditos del proyecto (`LU4HNE`), versión instalada (`v1.5.2`), hardware activo (`Driver TFT`, `Touch`, `Pin Audio TX`, `IP`, `Passcode` y memoria RAM libre).
+   * **Página 6 (`6/7: EMERGENCIA SOS`):**
+     * Intervalo de baliza SOS (`60s` / `120s` / `180s`), activación de mensaje directo de auxilio, destinatario (`CALLSIGN`) y alerta sonora por parlante.
+   * **Página 7 (`7/7: CREDITOS Y VERSION` — Siempre la última página / About):**
+     * Muestra créditos del proyecto (`LU4HNE`), versión instalada (`v1.6.4`), hardware activo (`Driver TFT` con indicador `(Inv)`, `Touch`, `Pin Audio TX`, `IP`, `Passcode` y memoria RAM libre). Tocar esta tarjeta alterna rápidamente la inversión de color de pantalla.
      * Incluye selectores de brillo del **LED Azul (`LED: TENUE / MEDIO / OFF`)**, brillo de pantalla **TFT (`TFT: 100% / 65% / 35% / 15%`)**, **`[GUARDAR]`** y **`[REINICIAR]`**.
 
 ---

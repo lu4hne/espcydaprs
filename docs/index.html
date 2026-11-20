@@ -287,7 +287,7 @@
       <button id="btnFull" class="flash-btn primary" onclick="startFlash('full')">
         <span class="btn-tag green">Recomendado</span>
         <span class="btn-name">Instalación Completa (Desde Cero)</span>
-        <span class="btn-desc">Graba el firmware completo v1.6.3 (Bootloader + Particiones + App en 0x0000). Ideal para placas nuevas o recién compradas.</span>
+        <span class="btn-desc">Graba el firmware completo v1.6.4 (Bootloader + Particiones + App en 0x0000). Ideal para placas nuevas o recién compradas.</span>
       </button>
 
       <!-- BOTÓN ACTUALIZAR -->
@@ -315,8 +315,8 @@
 Navegadores soportados: Google Chrome, Microsoft Edge, Brave u Opera (con WebSerial activo).</div>
 
     <div class="tip-box">
-      <strong>TIP IMPORTANTE SI LA PANTALLA QUEDA BLANCA:</strong>
-      Existen dos variantes de la placa CYD (controlador <code>ILI9341</code> y <code>ST7789</code>). Si al encender la pantalla queda en blanco o con colores raros, simplemente <strong>mantén presionado el botón físico BOOT (en la parte trasera de la placa) durante 2 segundos</strong> y cambiará automáticamente al otro controlador de pantalla.
+      <strong>TIP IMPORTANTE SI LA PANTALLA QUEDA BLANCA O CON COLORES INVERTIDOS:</strong>
+      Existen variantes de la placa CYD (controlador <code>ILI9341</code> y <code>ST7789</code>). Si al encender la pantalla queda en blanco, <strong>mantén presionado el botón físico BOOT durante 2 segundos</strong> para cambiar de controlador. Si la imagen se ve con los <strong>colores invertidos (negativo)</strong>, toca el botón <strong><code>NORM / INV</code></strong> en <code>CONF 2/7</code>, envía <code>'i'</code> por el Monitor Serie o actívalo desde el Portal Web OTA.
     </div>
 
     <!-- Botón alternativo ESP Web Tools estándar -->
@@ -340,6 +340,7 @@ Navegadores soportados: Google Chrome, Microsoft Edge, Brave u Opera (con WebSer
       <button class="cmd-btn serial-act" onclick="sendSerialCmd('b')" disabled>Baliza RF ('b')</button>
       <button class="cmd-btn serial-act" onclick="sendSerialCmd('l')" disabled>Test Loopback ('l')</button>
       <button class="cmd-btn serial-act" onclick="sendSerialCmd('d')" disabled>Alternar Pantalla ST/ILI ('d')</button>
+      <button class="cmd-btn serial-act" onclick="sendSerialCmd('i')" disabled>Invertir Color ('i')</button>
       <button class="cmd-btn serial-act" onclick="sendSerialCmd('s')" disabled>Ver Estado ('s')</button>
       <button class="cmd-btn serial-act" onclick="clearSerialLog()" disabled>Limpiar</button>
     </div>
@@ -373,7 +374,7 @@ Navegadores soportados: Google Chrome, Microsoft Edge, Brave u Opera (con WebSer
   <footer>
     Proyecto ESP32 CYD APRS Transceiver &bull; Desarrollado por <strong>LU4HNE</strong> &bull;
     <a href="https://github.com/lu4hne/espcydaprs" target="_blank" rel="noopener">Ver Código en GitHub</a> &bull;
-    Firmware Versión <strong>v1.6.3</strong>
+    Firmware Versión <strong>v1.6.4</strong>
   </footer>
 </div>
 
@@ -428,11 +429,11 @@ Navegadores soportados: Google Chrome, Microsoft Edge, Brave u Opera (con WebSer
     if (mode === "full") {
       binUrl = "firmware/ESP32_CYD_APRS_FULL.bin";
       offset = 0x0000;
-      fileName = "ESP32_CYD_APRS_FULL.bin (v1.6.3 Completo)";
+      fileName = "ESP32_CYD_APRS_FULL.bin (v1.6.4 Completo)";
     } else if (mode === "update") {
       binUrl = "firmware/update.bin";
       offset = 0x10000;
-      fileName = "update.bin (v1.6.3 App Offset 0x10000)";
+      fileName = "update.bin (v1.6.4 App Offset 0x10000)";
     } else if (mode === "custom") {
       const fileInput = document.getElementById("localBinFile");
       if (!fileInput.files || fileInput.files.length === 0) {
