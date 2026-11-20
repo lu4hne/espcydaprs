@@ -62,7 +62,7 @@ void setup() {
                   GPS_UART_RX_PIN, GPS_UART_TX_PIN, GPS_BAUD_RATE);
     Serial.printf("  Pines SD     -> CS: GPIO %d | SCK: %d | MISO: %d | MOSI: %d\n",
                   SD_PIN_CS, SD_PIN_SCK, SD_PIN_MISO, SD_PIN_MOSI);
-    Serial.println(F("  Comandos USB : 'b'=Baliza, 'l'=Loopback, 'm'=Modo, 'd'=Placa ST/ILI, 't'=Diag, 'k'=Swap Ejes, 'x'/'y'=Inv X/Y, 'w'=WebOTA"));
+    Serial.println(F("  Comandos USB : 'b'=Baliza, 'l'=Loopback, 'm'=Modo, 'd'=Placa ST/ILI, 'i'=Inv Color, 't'=Diag, 'k'=Swap Ejes, 'x'/'y'=Inv X/Y, 'w'=WebOTA"));
     Serial.println(F("  Boton BOOT   : Mantener presionado 2 seg para alternar Placa ILI9341 <-> ST7789"));
     Serial.println(F("============================================================"));
 
@@ -147,6 +147,11 @@ void loop() {
             Serial.printf("[CMD] Modo cambiado a: %u (0=Tracker, 1=Fija+IGate, 2=Fija RF)\n", (unsigned)next);
         } else if (cmd == 'd' || cmd == 'D') {
             toggleBoardHardwareProfile();
+        } else if (cmd == 'i' || cmd == 'I') {
+            AprsConfig& c = Aprs.config();
+            Ui.setDisplayInvert(!c.displayInvert);
+            Serial.printf("[TFT] Inversion de Color: %s (Guardado en NVS)\n",
+                          c.displayInvert ? "ACTIVADA (TFT_INVON)" : "DESACTIVADA (TFT_INVOFF)");
         } else if (cmd == 't' || cmd == 'T') {
             Ui.touch().printDiagnostics();
         } else if (cmd == 'k' || cmd == 'K') {

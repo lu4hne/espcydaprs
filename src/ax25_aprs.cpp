@@ -249,11 +249,9 @@ void AprsEngine::applyBoardModel(BoardModel model) {
         // Modelo ST7789 (1 USB): Backlight en IO27; en el conector blanco CN1 están IO21 (Audio TX) e IO22 (PTT),
         // dejando IO16/IO17 libres en P3 para Sensores I2C o GPS, e IO4 para el LED Rojo de TX.
         _cfg.txAudioPin = 21;
-        _cfg.displayInvert = false;
     } else {
         // Modelo ILI9341: Conectores tienen IO35, IO22, IO21 (BL), IO27 (Audio TX)
         _cfg.txAudioPin = 27;
-        _cfg.displayInvert = false;
     }
     Modem.configure(_cfg.txDelayMs, _cfg.txTailMs, _cfg.txVolume, _cfg.txAudioPin);
 }

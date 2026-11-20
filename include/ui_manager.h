@@ -38,6 +38,7 @@ public:
     void begin();
     void update();
     void applyDisplayHardware();
+    void setDisplayInvert(bool invert);
 
     TFT_eSPI& tft() { return _tft; }
     CST820Touch& touch() { return _touch; }

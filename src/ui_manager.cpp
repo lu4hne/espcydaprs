@@ -135,16 +135,24 @@ void UiManager::applyDisplayHardware() {
         _tft.setRotation(1);
         _tft.writecommand(0x3A); _tft.writedata(0x55); // COLMOD: 16-bit RGB565
         _tft.writecommand(0x36); _tft.writedata(0x6C); // MADCTL: MV | MX | MH | BGR (igual a WeatherClock rotation=1)
-        _tft.writecommand(cfg.displayInvert ? 0x21 : 0x20);
+        _tft.invertDisplay(cfg.displayInvert);
     } else {
         // Re-inicializar registros nativos de ILI9341 por si se acaba de conmutar desde ST7789
         _tft.writecommand(0x01); // SWRESET
         delay(120);
         _tft.init();
         _tft.setRotation(1); // 320x240 Horizontal
-        _tft.writecommand(cfg.displayInvert ? 0x21 : 0x20);
+        _tft.invertDisplay(cfg.displayInvert);
     }
     _touch.begin(&_tft, cfg.boardModel == BOARD_MODEL_ILI9341);
+    _needsFullRedraw = true;
+}
+
+void UiManager::setDisplayInvert(bool invert) {
+    AprsConfig& cfg = Aprs.config();
+    cfg.displayInvert = invert;
+    _tft.invertDisplay(cfg.displayInvert);
+    Aprs.saveConfig();
     _needsFullRedraw = true;
 }
 
@@ -876,23 +884,31 @@ void UiManager::drawConfig(bool fullRedraw) {
         _tft.drawString(commShort, 72, 179, 2);
 
     } else if (_cfgPage == 1) {
-        // Página 2: Modelo de Placa (ILI9341 vs ST7789), Pin de Audio TX, Preset Radio, Delay, Vol, Baliza, Digi
-        // Fila 1 (y=52..86): Modelo de Placa (informativo) y Pin de Salida Audio TX (conector + IO26)
-        _tft.fillRoundRect(6, 52, 146, 34, 3, COL_CARD);
-        _tft.drawRoundRect(6, 52, 146, 34, 3, COL_BORDER);
+        // Página 2: Modelo de Placa (ILI9341 vs ST7789), Inversión Color TFT, Pin de Audio TX, Preset Radio, Delay, Vol, Baliza, Digi
+        // Fila 1 (y=52..86): Modelo de Placa, Inversión Color TFT y Pin de Salida Audio TX
+        _tft.fillRoundRect(6, 52, 94, 34, 3, COL_CARD);
+        _tft.drawRoundRect(6, 52, 94, 34, 3, COL_BORDER);
         _tft.setTextColor(COL_MUTED, COL_CARD);
-        _tft.drawCentreString(cfg.boardModel == BOARD_MODEL_ST7789 ? "Placa: ST7789" : "Placa: ILI9341", 79, 61, 2);
+        _tft.drawCentreString(cfg.boardModel == BOARD_MODEL_ST7789 ? "ST7789" : "ILI9341", 53, 61, 2);
 
-        _tft.fillRoundRect(158, 52, 156, 34, 3, COL_CARD);
-        _tft.drawRoundRect(158, 52, 156, 34, 3, COL_ACCENT);
-        char txPinStr[28];
+        // Botón de Inversión de Color de Pantalla (TFT_INVON / TFT_INVOFF)
+        uint16_t invBorder = cfg.displayInvert ? COL_ORANGE : COL_BORDER;
+        uint16_t invTxtCol = cfg.displayInvert ? COL_YELLOW : COL_WHITE;
+        _tft.fillRoundRect(106, 52, 102, 34, 3, COL_CARD);
+        _tft.drawRoundRect(106, 52, 102, 34, 3, invBorder);
+        _tft.setTextColor(invTxtCol, COL_CARD);
+        _tft.drawCentreString(cfg.displayInvert ? "Color: INV" : "Color: NORM", 157, 61, 2);
+
+        _tft.fillRoundRect(214, 52, 100, 34, 3, COL_CARD);
+        _tft.drawRoundRect(214, 52, 100, 34, 3, COL_ACCENT);
+        char txPinStr[20];
         if (cfg.txAudioPin == 26) {
-            snprintf(txPinStr, sizeof(txPinStr), "TX Pin: IO26 (SPK)");
+            snprintf(txPinStr, sizeof(txPinStr), "TX: IO26");
         } else {
-            snprintf(txPinStr, sizeof(txPinStr), "TX Pin: IO%u (+IO26)", cfg.txAudioPin);
+            snprintf(txPinStr, sizeof(txPinStr), "TX: IO%u", cfg.txAudioPin);
         }
         _tft.setTextColor(COL_GREEN, COL_CARD);
-        _tft.drawCentreString(txPinStr, 236, 61, 2);
+        _tft.drawCentreString(txPinStr, 264, 61, 2);
 
         // Fila 2 (y=91..125): Preset Radio (Baofeng/Yaesu), TX Delay y Volumen TX
         _tft.fillRoundRect(6, 91, 102, 34, 3, COL_CARD);
@@ -1177,8 +1193,9 @@ void UiManager::drawConfig(bool fullRedraw) {
         _tft.drawCentreString(verLine, 160, 100, 2);
 
         char hwLine[48];
-        snprintf(hwLine, sizeof(hwLine), "Driver: %s | Touch: %s | TX: IO%u+26",
+        snprintf(hwLine, sizeof(hwLine), "Driver: %s%s | Touch: %s | TX: IO%u+26",
                  cfg.boardModel == BOARD_MODEL_ST7789 ? "ST7789" : "ILI9341",
+                 cfg.displayInvert ? " (Inv)" : "",
                  _touch.isCapacitive() ? "CST820" : "XPT2046",
                  cfg.txAudioPin);
         _tft.setTextColor(COL_ACCENT, COL_CARD);
@@ -1710,10 +1727,13 @@ void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
 
     } else if (_cfgPage == 1) {
         // Página 2: Modelo de Placa / Pin TX / Radio Preset / TX Delay / TX Volume / Intervalo / Auto-ACK / Digi
-        if (ty >= 55 && ty <= 88) {
-            // "Placa: ILI9341 / ST7789" es informativo para evitar cambiar de driver por error táctil.
-            // Para alternar perfil de placa se usa el botón físico BOOT (2 seg) o comando 'd' por USB.
-            if (tx >= 150) {
+        if (ty >= 52 && ty <= 88) {
+            if (tx >= 106 && tx <= 208) {
+                // Alternar Inversión de Color de Pantalla (TFT_INVON / TFT_INVOFF)
+                setDisplayInvert(!cfg.displayInvert);
+                showToast(cfg.displayInvert ? "Color Invertido (TFT_INVON)" : "Color Normal (TFT_INVOFF)", COL_GREEN);
+                return;
+            } else if (tx >= 210) {
                 // Ciclar Pin Audio TX según los pines físicos disponibles en cada placa:
                 if (cfg.boardModel == BOARD_MODEL_ILI9341) {
                     // ILI9341: IO27 (CN1) <-> IO26 (SPK) <-> IO21 (P3)
@@ -1733,9 +1753,9 @@ void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
                 char pinToast[32];
                 snprintf(pinToast, sizeof(pinToast), "Audio TX en IO%u", cfg.txAudioPin);
                 showToast(pinToast, COL_GREEN);
+                _needsFullRedraw = true;
+                return;
             }
-            _needsFullRedraw = true;
-            return;
         }
         if (ty >= 91 && ty <= 125) {
             if (tx < 110) {
@@ -1930,6 +1950,13 @@ void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
 
     } else {
         // Página 7 (Siempre la última): Créditos, Versión, Brillo LED/TFT y Reinicio
+        // Tocar Tarjeta 2 (y=96..136) para alternar rápido la inversión de color
+        if (ty >= 96 && ty <= 136) {
+            setDisplayInvert(!cfg.displayInvert);
+            showToast(cfg.displayInvert ? "Color Invertido (TFT_INVON)" : "Color Normal (TFT_INVOFF)", COL_GREEN);
+            return;
+        }
+
         if (ty >= 176 && ty <= 208) {
             if (tx < 106) {
                 cfg.ledBrightness = (cfg.ledBrightness + 1) % 3; // 1 (Tenue) -> 2 (Medio) -> 0 (Off)
