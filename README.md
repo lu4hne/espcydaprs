@@ -1,4 +1,4 @@
-# ESP32 CYD (`ESP32-2432S024C` / `ESP32-2432S028R`) — Transceptor APRS 1200 bps / Tracker / Estación Fija + IGate + Estación Meteorológica WX (`v1.6.6`)
+# ESP32 CYD (`ESP32-2432S024C` / `ESP32-2432S028R`) — Transceptor APRS 1200 bps / Tracker / Estación Fija + IGate + Estación Meteorológica WX (`v1.6.7`)
 
 Aplicación completa de **codificación y decodificación APRS a 1200 baudios (AFSK Bell 202 / AX.25)** con **IGate APRS-IS bidireccional por WiFi**, **telemetría meteorológica (`BMP280 / BME280 / AHT20 / DHT22 / DHT11`)** y **actualización de firmware por MicroSD y Web OTA**, diseñada para la familia de placas **ESP32 Cheap Yellow Display (CYD)** tanto en sus variantes con controlador **`ILI9341`** como **`ST7789` (1-USB)** y paneles táctiles **`CST820` (I2C)** o **`XPT2046` (SPI dedicado o compartido)**.
 
@@ -256,7 +256,7 @@ La barra inferior mantiene **5 botones amplios dedicados a la operación de radi
 2. **`MONIT` (Monitor de Tráfico AX.25 / IGate + Diagnóstico DSP Opcional):**
    * Lista en tiempo real de paquetes decodificados con distancia (`km`), rumbo cardinal y etiqueta verde **`[IGATE]`** cuando el paquete fue inyectado o recibido desde **APRS-IS**.
    * **Botón opcional `[DIAG]` (esquina superior derecha):** Apagado por defecto (sin impacto en rendimiento). Al activarlo reinicia los contadores y muestra en vivo las métricas del demodulador DSP sobre señales reales (`DC` de polarización ADC, porcentaje Mark `M%`, banderas `0x7E`, errores `CRC`, tramas abortadas y detección de `CLIPPING ADC` o ausencia de banderas).
-   * **Estabilidad y Prioridad RF (`v1.6.6`):** Demodulador DSP 100% en punto fijo entero en Core 0 (sin `float` ni `millis()` en el muestreo de 9600 Hz), timeouts I2C (`50 ms`) en `Wire` y `Wire1`, sensor meteorológico en `APAGADO` por defecto (evitando interferencia I2C en pines flotantes al arrancar) e inicialización de sensores antes del módem AFSK.
+   * **Arquitectura de Recepción Prioritaria RF (`v1.6.7`):** La tarea dedicada `AFSK_RX` corre en **Core 1 con prioridad máxima (`10`)** disparada por el **Timer de Hardware 3 (`104 µs` / `9600 Hz`)**, con demodulador DSP 100% entero y cola de `16` tramas, completamente aislada del stack WiFi/TCP-IP (Core 0) y sin pausas al conectar WiFi o abrir el Portal OTA. Incluye timeouts I2C (`50 ms`) en `Wire`/`Wire1` y sensor meteorológico en `APAGADO` por defecto.
 3. **`MSJS` (Mensajes APRS Bidireccionales por RF y APRS-IS):**
    * Redacta mensajes con el teclado táctil QWERTY, con confirmación automática **`ACK`** y reintentos.
    * **Respuesta con un toque:** Toca cualquier mensaje recibido en la lista para abrir directamente la ventana de respuesta hacia ese corresponsal.
@@ -278,7 +278,7 @@ La barra inferior mantiene **5 botones amplios dedicados a la operación de radi
    * **Página 6 (`6/7: EMERGENCIA SOS`):**
      * Intervalo de baliza SOS (`60s` / `120s` / `180s`), activación de mensaje directo de auxilio, destinatario (`CALLSIGN`) y alerta sonora por parlante.
    * **Página 7 (`7/7: CREDITOS Y VERSION` — Siempre la última página / About):**
-     * Muestra créditos del proyecto (`LU4HNE`), versión instalada (`v1.6.6`), hardware activo (`Driver TFT` con indicador `(Inv)`, `Touch`, `Pin Audio TX`, `IP`, `Passcode` y memoria RAM libre). Tocar esta tarjeta alterna rápidamente la inversión de color de pantalla.
+     * Muestra créditos del proyecto (`LU4HNE`), versión instalada (`v1.6.7`), hardware activo (`Driver TFT` con indicador `(Inv)`, `Touch`, `Pin Audio TX`, `IP`, `Passcode` y memoria RAM libre). Tocar esta tarjeta alterna rápidamente la inversión de color de pantalla.
      * Incluye selectores de brillo del **LED Azul (`LED: TENUE / MEDIO / OFF`)**, brillo de pantalla **TFT (`TFT: 100% / 65% / 35% / 15%`)**, **`[GUARDAR]`** y **`[REINICIAR]`**.
 
 ---
