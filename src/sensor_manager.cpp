@@ -70,6 +70,12 @@ void SensorManager::begin() {
 }
 
 void SensorManager::update() {
+    // Solo re-leer cada 10 s si hay un sensor conectado.
+    // Si no se detecto sensor al arrancar, no destruir/recrear Wire.begin()/Wire.end()
+    // ni ledcSetup() repetidamente (el usuario puede re-escanear con [DETECTAR] en CONF 5/7).
+    if (!_reading.connected) {
+        return;
+    }
     uint32_t now = millis();
     if (now - _lastPollMs >= 10000UL) {
         forceDetectAndRead();
@@ -190,6 +196,7 @@ bool SensorManager::i2cReadBytes(uint8_t addr, uint8_t reg, uint8_t* buf, size_t
 
 bool SensorManager::initAndReadBmpBme280(int8_t sda, int8_t scl) {
     Wire.begin(sda, scl, 100000);
+    Wire.setTimeOut(50);
 
     static const uint8_t addrs[2] = { 0x76, 0x77 };
     uint8_t foundAddr = 0;
@@ -324,6 +331,7 @@ bool SensorManager::initAndReadBmpBme280(int8_t sda, int8_t scl) {
 
 bool SensorManager::initAndReadAht20(int8_t sda, int8_t scl) {
     Wire.begin(sda, scl, 100000);
+    Wire.setTimeOut(50);
 
     Wire.beginTransmission(0x38);
     if (Wire.endTransmission() != 0) return false;

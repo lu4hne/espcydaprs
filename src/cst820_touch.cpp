@@ -24,6 +24,7 @@ void CST820Touch::begin(TFT_eSPI* tft, bool forceResistive) {
         // 2. Probar en Wire1 si existe controlador Capacitivo I2C (CST820 0x15 / FT6336 0x38 / GT911 0x5D)
         Wire1.end();
         if (Wire1.begin(_sda, _scl, 400000)) {
+            Wire1.setTimeOut(50);
             static const uint8_t ADDR_CANDIDATES[3] = { 0x15, 0x38, 0x5D };
             for (uint8_t addr : ADDR_CANDIDATES) {
                 Wire1.beginTransmission(addr);
