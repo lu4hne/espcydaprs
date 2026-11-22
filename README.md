@@ -1,4 +1,4 @@
-# ESP32 CYD (`ESP32-2432S024C` / `ESP32-2432S028R`) — Transceptor APRS 1200 bps / Tracker / Estación Fija + IGate + Estación Meteorológica WX (`v1.6.4`)
+# ESP32 CYD (`ESP32-2432S024C` / `ESP32-2432S028R`) — Transceptor APRS 1200 bps / Tracker / Estación Fija + IGate + Estación Meteorológica WX (`v1.6.5`)
 
 Aplicación completa de **codificación y decodificación APRS a 1200 baudios (AFSK Bell 202 / AX.25)** con **IGate APRS-IS bidireccional por WiFi**, **telemetría meteorológica (`BMP280 / BME280 / AHT20 / DHT22 / DHT11`)** y **actualización de firmware por MicroSD y Web OTA**, diseñada para la familia de placas **ESP32 Cheap Yellow Display (CYD)** tanto en sus variantes con controlador **`ILI9341`** como **`ST7789` (1-USB)** y paneles táctiles **`CST820` (I2C)** o **`XPT2046` (SPI dedicado o compartido)**.
 
@@ -276,7 +276,7 @@ La barra inferior mantiene **5 botones amplios dedicados a la operación de radi
    * **Página 6 (`6/7: EMERGENCIA SOS`):**
      * Intervalo de baliza SOS (`60s` / `120s` / `180s`), activación de mensaje directo de auxilio, destinatario (`CALLSIGN`) y alerta sonora por parlante.
    * **Página 7 (`7/7: CREDITOS Y VERSION` — Siempre la última página / About):**
-     * Muestra créditos del proyecto (`LU4HNE`), versión instalada (`v1.6.4`), hardware activo (`Driver TFT` con indicador `(Inv)`, `Touch`, `Pin Audio TX`, `IP`, `Passcode` y memoria RAM libre). Tocar esta tarjeta alterna rápidamente la inversión de color de pantalla.
+     * Muestra créditos del proyecto (`LU4HNE`), versión instalada (`v1.6.5`), hardware activo (`Driver TFT` con indicador `(Inv)`, `Touch`, `Pin Audio TX`, `IP`, `Passcode` y memoria RAM libre). Tocar esta tarjeta alterna rápidamente la inversión de color de pantalla.
      * Incluye selectores de brillo del **LED Azul (`LED: TENUE / MEDIO / OFF`)**, brillo de pantalla **TFT (`TFT: 100% / 65% / 35% / 15%`)**, **`[GUARDAR]`** y **`[REINICIAR]`**.
 
 ---

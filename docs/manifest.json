@@ -1,6 +1,6 @@
 {
   "name": "ESP32 CYD APRS",
-  "version": "1.6.4",
+  "version": "1.6.5",
   "home_assistant_domain": "esphome",
   "new_install_prompt_erase": false,
   "builds": [

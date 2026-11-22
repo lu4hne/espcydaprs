@@ -2,7 +2,7 @@
 
 #include <Arduino.h>
 
-#define FIRMWARE_VERSION    "1.6.4"
+#define FIRMWARE_VERSION    "1.6.5"
 
 // ============================================================================
 // PLACA: ESP32 CYD (Soporte Dual: Modelo ST7789 1-USB y Modelo ILI9341)
