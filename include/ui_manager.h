@@ -50,6 +50,7 @@ private:
 
     UiTab _currentTab = TAB_DASHBOARD;
     uint8_t _cfgPage = 0; // 0=Modo/Estación, 1=Radio/Baliza, 2=WiFi/IGate, 3=SD/OTA, 4=Sensores WX, 5=SOS/Emergencia, 6=Créditos/Versión
+    bool _showMonitorDiag = false; // Diagnóstico DSP RX opcional dentro de la pestaña MONITOR
     bool _needsFullRedraw = true;
     uint32_t _lastDynamicUpdateMs = 0;
     uint32_t _lastTouchMs = 0;
@@ -86,6 +87,7 @@ private:
 
     void drawDashboard(bool fullRedraw);
     void drawMonitor(bool fullRedraw);
+    void drawMonitorDiagCard();
     void drawMessages(bool fullRedraw);
     void drawStations(bool fullRedraw);
     void drawConfig(bool fullRedraw);

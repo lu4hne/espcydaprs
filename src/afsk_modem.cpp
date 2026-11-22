@@ -159,6 +159,18 @@ bool AfskModem::receiveFrame(RawAx25Frame* outFrame) {
     return xQueueReceive(_rxQueue, outFrame, 0) == pdTRUE;
 }
 
+void AfskModem::resetRxDiag() {
+    _rxFlagCount = 0;
+    _rxCrcFailCount = 0;
+    _rxAbortCount = 0;
+    _rxShortCount = 0;
+    _lastFailLen = 0;
+    _lastErr = RX_ERR_NONE;
+    _lastErrMs = 0;
+    _flagsAtLastWindow = 0;
+    _carrierNoFlagTicks = 0;
+}
+
 void AfskModem::setPtt(bool active) {
     _transmitting = active;
     digitalWrite(RADIO_PTT_PIN, active ? HIGH : LOW);
@@ -206,7 +218,10 @@ void AfskModem::onRxTimerSample() {
     _dcEstimate = 0.995f * _dcEstimate + 0.005f * (float)rawAdc;
     int16_t centered = (int16_t)((float)rawAdc - _dcEstimate);
 
-    // Medición de nivel de audio para el vúmetro de pantalla
+    // Medición de nivel de audio y recorte ADC para el vúmetro y diagnóstico de pantalla
+    if (rawAdc <= 30 || rawAdc >= 4065) {
+        _clipInWindow++;
+    }
     int16_t absSample = abs(centered);
     if (absSample > _peakInWindow) {
         _peakInWindow = absSample;
@@ -216,8 +231,32 @@ void AfskModem::onRxTimerSample() {
         int pct = (_peakInWindow * 100) / 1400;
         if (pct > 100) pct = 100;
         _rxLevelPercent = (uint8_t)pct;
+        _lastWindowPeak = (int16_t)_peakInWindow;
         _carrierDetected = (_peakInWindow > 70) || _rxInFrame;
+        _rxMarkPct = (uint8_t)((_markInWindow * 100UL) / 960UL);
+
+        uint32_t nowMs = millis();
+        if (_clipInWindow >= 10) {
+            _lastErr = RX_ERR_CLIPPING;
+            _lastErrMs = nowMs;
+        } else if (pct >= 20) {
+            if (_rxFlagCount == _flagsAtLastWindow) {
+                if (_carrierNoFlagTicks < 255) _carrierNoFlagTicks++;
+                // Si hubo audio sostenido >= 400 ms sin ver ni una bandera 0x7E
+                if (_carrierNoFlagTicks >= 4 && (_lastErr == RX_ERR_NONE || _lastErr == RX_ERR_NO_FLAGS || (nowMs - _lastErrMs > 1500))) {
+                    _lastErr = RX_ERR_NO_FLAGS;
+                    _lastErrMs = nowMs;
+                }
+            } else {
+                _carrierNoFlagTicks = 0;
+            }
+        } else {
+            _carrierNoFlagTicks = 0;
+        }
+        _flagsAtLastWindow = _rxFlagCount;
         _peakInWindow = 0;
+        _clipInWindow = 0;
+        _markInWindow = 0;
         _levelWindowSamples = 0;
     }
 
@@ -379,6 +418,9 @@ void AfskModem::processRxSample(int16_t centeredSample) {
     // Filtro pasa-bajos post-detección (alpha=0.30 para suprimir rizado de batido 1200/2200 Hz)
     _lpfCorr = 0.70f * _lpfCorr + 0.30f * diff;
     bool currentToneMark = (_lpfCorr >= 0.0f);
+    if (currentToneMark) {
+        _markInWindow++;
+    }
 
     // Recuperación de reloj (Digital PLL) en transiciones de tono
     if (currentToneMark != _lastToneMark) {
@@ -409,7 +451,13 @@ void AfskModem::processRxBit(bool nrziBit) {
         // Bit '1' recibido
         _rxOnesCount++;
         if (_rxOnesCount >= 7) {
-            // 7 unos seguidos = Abortar trama HDLC
+            // 7 unos seguidos = Abortar trama HDLC (solo contabilizar si hubo portadora de audio real)
+            if (_rxInFrame && _rxFrameLen >= 4 && _rxPeakTrack > 100) {
+                _rxAbortCount++;
+                _lastFailLen = _rxFrameLen;
+                _lastErr = RX_ERR_ABORT;
+                _lastErrMs = millis();
+            }
             _rxInFrame = false;
             _rxFrameLen = 0;
             _rxBitIndex = 0;
@@ -431,7 +479,11 @@ void AfskModem::processRxBit(bool nrziBit) {
     } else {
         // Bit '0' recibido
         if (_rxOnesCount == 6) {
-            // Se detectó bandera HDLC 0x7E (01111110)
+            // Se detectó bandera HDLC 0x7E (01111110) — contabilizar solo con audio real (>100 cuentas)
+            bool hasAudio = (_rxLevelPercent >= 10) || (_rxPeakTrack > 100);
+            if (hasAudio) {
+                _rxFlagCount++;
+            }
             if (_rxInFrame && _rxFrameLen >= 16) {
                 // Verificar CRC-16 CCITT de la trama recibida
                 uint16_t payloadLen = _rxFrameLen - 2;
@@ -446,6 +498,20 @@ void AfskModem::processRxBit(bool nrziBit) {
                     validFrame.audioPeak = _rxPeakTrack;
                     xQueueSend(_rxQueue, &validFrame, 0);
                     _rxCount++;
+                    _lastRxOkMs = millis();
+                    _lastErr = RX_ERR_NONE;
+                } else if (hasAudio) {
+                    _rxCrcFailCount++;
+                    _lastFailLen = _rxFrameLen;
+                    _lastErr = RX_ERR_CRC_FAIL;
+                    _lastErrMs = millis();
+                }
+            } else if (_rxInFrame && _rxFrameLen >= 3 && hasAudio) {
+                _rxShortCount++;
+                _lastFailLen = _rxFrameLen;
+                if (_lastErr != RX_ERR_CRC_FAIL) {
+                    _lastErr = RX_ERR_SHORT;
+                    _lastErrMs = millis();
                 }
             }
             // Iniciar/reiniciar captura de nueva trama

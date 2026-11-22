@@ -183,7 +183,7 @@ void loop() {
             AprsConfig& c = Aprs.config();
             const char* modeName = (c.stationMode == STATION_MODE_FIXED_IGATE) ? "FIJA+IGATE" :
                                    (c.stationMode == STATION_MODE_TRACKER)     ? "TRACKER" : "FIJA-RF";
-            Serial.printf("[STATUS] Call: %s-%u | Modo: %s | IP: %s | Pos: %.4f, %.4f | TX: %lu | RX: %lu | IGATE: %s (%lu pkts, Pass=%u) | AudioRX: %u%%\n",
+            Serial.printf("[STATUS] Call: %s-%u | Modo: %s | IP: %s | Pos: %.4f, %.4f | TX: %lu | RX: %lu | IGATE: %s (%lu pkts, Pass=%u) | AudioRX: %u%% | DSP(DC:%u M:%u%% F:%lu CRC:%lu Abr:%lu Err:%u)\n",
                           c.callsign, c.ssid, modeName,
                           Igate.getLocalIpString().c_str(),
                           Aprs.getCurrentLat(), Aprs.getCurrentLon(),
@@ -192,7 +192,13 @@ void loop() {
                           Igate.getStateText(),
                           (unsigned long)Igate.getRfToIsCount(),
                           Igate.getEffectivePasscode(),
-                          Modem.getRxAudioLevel());
+                          Modem.getRxAudioLevel(),
+                          (unsigned)Modem.getRxDcRaw(),
+                          (unsigned)Modem.getRxMarkPercent(),
+                          (unsigned long)Modem.getRxFlagCount(),
+                          (unsigned long)Modem.getRxCrcFailCount(),
+                          (unsigned long)Modem.getRxAbortCount(),
+                          (unsigned)Modem.getLastRxError());
         }
     }
 

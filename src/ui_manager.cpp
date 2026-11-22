@@ -241,6 +241,8 @@ void UiManager::update() {
         drawTopBar();
         if (_currentTab == TAB_DASHBOARD) {
             drawDashboard(false);
+        } else if (_currentTab == TAB_MONITOR && _showMonitorDiag) {
+            drawMonitorDiagCard();
         }
 
         // Actualizar LED RGB de estado (Azul tenue = IGate Online, Verde = RX DCD)
@@ -585,7 +587,7 @@ void UiManager::drawDashboard(bool fullRedraw) {
     _tft.setTextColor(COL_WHITE, COL_CARD);
     _tft.drawString(pctStr, 274, 104, 2);
 
-    // Último paquete recibido en Tarjeta 4
+    // Último paquete recibido en Tarjeta 4 (pantalla principal siempre limpia)
     if (Aprs.getPacketLogCount() > 0) {
         const DecodedPacket& last = Aprs.getPacketLog(0);
         char hdr[48];
@@ -598,12 +600,13 @@ void UiManager::drawDashboard(bool fullRedraw) {
             snprintf(hdr, sizeof(hdr), "%s > %s%s     ",
                      last.srcCall, last.dstCall, igTag);
         }
+        _tft.fillRect(10, 132, 300, 18, COL_CARD);
         _tft.setTextColor(COL_YELLOW, COL_CARD);
         _tft.drawString(hdr, 12, 134, 2);
 
         char bodyShort[44];
         strlcpy(bodyShort, last.comment, sizeof(bodyShort));
-        _tft.fillRect(12, 152, 296, 16, COL_CARD);
+        _tft.fillRect(10, 151, 300, 17, COL_CARD);
         _tft.setTextColor(COL_WHITE, COL_CARD);
         _tft.drawString(bodyShort, 12, 152, 2);
     } else {
@@ -613,22 +616,91 @@ void UiManager::drawDashboard(bool fullRedraw) {
     }
 }
 
+void UiManager::drawMonitorDiagCard() {
+    _tft.fillRoundRect(4, 46, 312, 37, 3, COL_HEADER);
+    _tft.drawRoundRect(4, 46, 312, 37, 3, COL_ORANGE);
+
+    RxDiagError rxErr = Modem.getLastRxError();
+    char errLine1[46];
+    uint16_t errCol = COL_GREEN;
+    switch (rxErr) {
+        case RX_ERR_CLIPPING:
+            snprintf(errLine1, sizeof(errLine1), "DSP: CLIPPING ADC! Baja volumen");
+            errCol = COL_RED;
+            break;
+        case RX_ERR_CRC_FAIL:
+            snprintf(errLine1, sizeof(errLine1), "DSP: CRC FAIL (%uB) [Audio:%u%%]",
+                     (unsigned)Modem.getRxLastFailLen(), (unsigned)Modem.getRxAudioLevel());
+            errCol = COL_RED;
+            break;
+        case RX_ERR_ABORT:
+            snprintf(errLine1, sizeof(errLine1), "DSP: ABORT SYNC (%uB) [Audio:%u%%]",
+                     (unsigned)Modem.getRxLastFailLen(), (unsigned)Modem.getRxAudioLevel());
+            errCol = COL_ORANGE;
+            break;
+        case RX_ERR_SHORT:
+            snprintf(errLine1, sizeof(errLine1), "DSP: TRAMA CORTA (%uB) [Audio:%u%%]",
+                     (unsigned)Modem.getRxLastFailLen(), (unsigned)Modem.getRxAudioLevel());
+            errCol = COL_ORANGE;
+            break;
+        case RX_ERR_NO_FLAGS:
+            snprintf(errLine1, sizeof(errLine1), "DSP: SIN FLAG 0x7E [Audio:%u%%]",
+                     (unsigned)Modem.getRxAudioLevel());
+            errCol = COL_ORANGE;
+            break;
+        case RX_ERR_NONE:
+        default:
+            snprintf(errLine1, sizeof(errLine1), "DSP RX OK [Audio:%u%% RX:%lu]",
+                     (unsigned)Modem.getRxAudioLevel(), (unsigned long)Modem.getRxPacketCount());
+            errCol = COL_GREEN;
+            break;
+    }
+    _tft.setTextColor(errCol, COL_HEADER);
+    _tft.drawString(errLine1, 9, 49, 2);
+
+    char errLine2[46];
+    snprintf(errLine2, sizeof(errLine2), "DC:%u M:%u%% F:%lu CRC:%lu Abr:%lu",
+             (unsigned)Modem.getRxDcRaw(),
+             (unsigned)Modem.getRxMarkPercent(),
+             (unsigned long)Modem.getRxFlagCount(),
+             (unsigned long)Modem.getRxCrcFailCount(),
+             (unsigned long)Modem.getRxAbortCount());
+    _tft.setTextColor(COL_WHITE, COL_HEADER);
+    _tft.drawString(errLine2, 9, 65, 2);
+}
+
 void UiManager::drawMonitor(bool fullRedraw) {
     _tft.setTextColor(COL_ACCENT, COL_BG);
-    _tft.drawString("MONITOR DE TRAFICO AX.25 / IGATE (1200 bps)", 6, 26, 2);
+    _tft.drawString("MONITOR AX.25 / IGATE", 6, 26, 2);
+
+    // Botón opcional [DIAG] en esquina superior derecha del Monitor
+    uint16_t diagBg  = _showMonitorDiag ? COL_ORANGE : COL_HEADER;
+    uint16_t diagTxt = _showMonitorDiag ? COL_BG     : COL_MUTED;
+    uint16_t diagBdr = _showMonitorDiag ? COL_WHITE  : COL_BORDER;
+    _tft.fillRoundRect(252, 24, 64, 19, 3, diagBg);
+    _tft.drawRoundRect(252, 24, 64, 19, 3, diagBdr);
+    _tft.setTextColor(diagTxt, diagBg);
+    _tft.drawCentreString(_showMonitorDiag ? "DIAG:ON" : "DIAG", 284, 26, 2);
+
+    if (_showMonitorDiag) {
+        drawMonitorDiagCard();
+    }
 
     int count = Aprs.getPacketLogCount();
     if (count == 0) {
         _tft.setTextColor(COL_MUTED, COL_BG);
-        _tft.drawCentreString("Sin paquetes recibidos aun.", 160, 95, 2);
-        _tft.drawCentreString("Usa [LOOPBACK] en PANEL o conecta el handy.", 160, 118, 2);
+        int msgY = _showMonitorDiag ? 115 : 95;
+        _tft.drawCentreString("Sin paquetes recibidos aun.", 160, msgY, 2);
+        _tft.drawCentreString("Usa [LOOPBACK] en PANEL o conecta el handy.", 160, msgY + 23, 2);
         return;
     }
 
-    int maxShow = (count > 4) ? 4 : count;
+    int maxSlots = _showMonitorDiag ? 3 : 4;
+    int startY   = _showMonitorDiag ? 86 : 46;
+    int maxShow  = (count > maxSlots) ? maxSlots : count;
     for (int i = 0; i < maxShow; i++) {
         const DecodedPacket& p = Aprs.getPacketLog(i);
-        int y = 46 + i * 40;
+        int y = startY + i * 40;
 
         _tft.fillRoundRect(4, y, 312, 37, 3, COL_CARD);
         _tft.drawRoundRect(4, y, 312, 37, 3, COL_BORDER);
@@ -1577,10 +1649,22 @@ void UiManager::handleDashboardTouch(uint16_t tx, uint16_t ty) {
 }
 
 void UiManager::handleMonitorTouch(uint16_t tx, uint16_t ty) {
+    // Botón [DIAG] en esquina superior derecha del Monitor (y <= 45, x >= 240)
+    if (ty <= 45 && tx >= 240) {
+        _showMonitorDiag = !_showMonitorDiag;
+        if (_showMonitorDiag) {
+            Modem.resetRxDiag();
+        }
+        _needsFullRedraw = true;
+        return;
+    }
+
     // Tocar un paquete en el monitor copia el indicativo de origen para enviarle mensaje
-    if (ty >= 46 && ty < 206) {
-        int idx = (ty - 46) / 40;
-        if (idx >= 0 && idx < Aprs.getPacketLogCount() && idx < 4) {
+    int startY   = _showMonitorDiag ? 86 : 46;
+    int maxSlots = _showMonitorDiag ? 3  : 4;
+    if (ty >= startY && ty < 206) {
+        int idx = (ty - startY) / 40;
+        if (idx >= 0 && idx < Aprs.getPacketLogCount() && idx < maxSlots) {
             const DecodedPacket& p = Aprs.getPacketLog(idx);
             strlcpy(_composeTo, p.srcCall, sizeof(_composeTo));
             _currentTab = TAB_MESSAGES;

@@ -14,6 +14,15 @@ struct RawAx25Frame {
     int16_t audioPeak;
 };
 
+enum RxDiagError : uint8_t {
+    RX_ERR_NONE = 0,
+    RX_ERR_CLIPPING,    // ADC saturado (<=30 o >=4065)
+    RX_ERR_CRC_FAIL,    // Trama >=16B recibida pero fallo CRC-16
+    RX_ERR_ABORT,       // Trama abortada por 7 unos (perdida de sincronismo)
+    RX_ERR_SHORT,       // Trama truncada (<16B entre flags)
+    RX_ERR_NO_FLAGS     // Audio presente (>20%) sin detectar banderas 0x7E
+};
+
 class AfskModem {
 public:
     AfskModem();
@@ -39,6 +48,20 @@ public:
     uint32_t getRxPacketCount() const { return _rxCount; }
     uint8_t getTxAudioPin() const { return _txAudioPin; }
 
+    // Diagnóstico de decodificación RX en tiempo real
+    uint32_t getRxFlagCount() const { return _rxFlagCount; }
+    uint32_t getRxCrcFailCount() const { return _rxCrcFailCount; }
+    uint32_t getRxAbortCount() const { return _rxAbortCount; }
+    uint32_t getRxShortCount() const { return _rxShortCount; }
+    uint16_t getRxDcRaw() const { return (uint16_t)_dcEstimate; }
+    uint8_t  getRxMarkPercent() const { return _rxMarkPct; }
+    int16_t  getRxLastPeak() const { return _lastWindowPeak; }
+    uint16_t getRxLastFailLen() const { return _lastFailLen; }
+    RxDiagError getLastRxError() const { return _lastErr; }
+    uint32_t getLastRxErrorMs() const { return _lastErrMs; }
+    uint32_t getLastRxOkMs() const { return _lastRxOkMs; }
+    void resetRxDiag();
+
     // Calcula el CRC-16 CCITT (AX.25 estándar: init 0xFFFF, poly 0x8408 reflejado)
     static uint16_t calcCrc16(const uint8_t* data, uint16_t len);
 
@@ -60,6 +83,20 @@ private:
 
     uint32_t _levelWindowSamples = 0;
     int32_t _peakInWindow = 0;
+    uint16_t _clipInWindow = 0;
+    uint16_t _markInWindow = 0;
+    uint8_t  _carrierNoFlagTicks = 0;
+    volatile int16_t  _lastWindowPeak = 0;
+    volatile uint8_t  _rxMarkPct = 50;
+    volatile uint32_t _rxFlagCount = 0;
+    volatile uint32_t _rxCrcFailCount = 0;
+    volatile uint32_t _rxAbortCount = 0;
+    volatile uint32_t _rxShortCount = 0;
+    volatile uint16_t _lastFailLen = 0;
+    volatile RxDiagError _lastErr = RX_ERR_NONE;
+    volatile uint32_t _lastErrMs = 0;
+    volatile uint32_t _lastRxOkMs = 0;
+    uint32_t _flagsAtLastWindow = 0;
 
     uint16_t _txDelayFlags = 45; // Cantidad de bytes 0x7E de preámbulo
     uint16_t _txTailFlags = 6;   // Cantidad de bytes 0x7E de cola
