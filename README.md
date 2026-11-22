@@ -253,8 +253,10 @@ La barra inferior mantiene **5 botones amplios dedicados a la operación de radi
    * **Cambio rápido de modo:** Toca la tarjeta superior izquierda en `PANEL` para alternar entre **Tracker**, **Estación Fija + IGate** y **Fija Solo RF**.
    * **Barra `AUDIO RX` (Vúmetro en vivo):** Ajusta el volumen de tu handy hasta que al recibir una señal el vúmetro se mantenga en la **zona verde (`30%` a `80%`)**.
    * **`[TX BALIZA]` / `[LOOPBACK]` / `[AUTO]`:** Transmite baliza inmediata (por RF y/o APRS-IS), ejecuta autodiagnóstico en bucle cerrado o activa el temporizador automático.
-2. **`MONIT` (Monitor de Tráfico AX.25 / IGate):**
+2. **`MONIT` (Monitor de Tráfico AX.25 / IGate + Diagnóstico DSP Opcional):**
    * Lista en tiempo real de paquetes decodificados con distancia (`km`), rumbo cardinal y etiqueta verde **`[IGATE]`** cuando el paquete fue inyectado o recibido desde **APRS-IS**.
+   * **Botón opcional `[DIAG]` (esquina superior derecha):** Apagado por defecto (sin impacto en rendimiento). Al activarlo reinicia los contadores y muestra en vivo las métricas del demodulador DSP sobre señales reales (`DC` de polarización ADC, porcentaje Mark `M%`, banderas `0x7E`, errores `CRC`, tramas abortadas y detección de `CLIPPING ADC` o ausencia de banderas).
+   * **Estabilidad 24/7 (`v1.6.5`):** Incluye Watchdog por hardware de 30 s sobre `loop()`, timeouts I2C (`50 ms`) en `Wire` y `Wire1` (evitando bloqueos por interferencia RF) y detención del re-escaneo I2C periódico cuando no hay sensor meteorológico conectado.
 3. **`MSJS` (Mensajes APRS Bidireccionales por RF y APRS-IS):**
    * Redacta mensajes con el teclado táctil QWERTY, con confirmación automática **`ACK`** y reintentos.
    * **Respuesta con un toque:** Toca cualquier mensaje recibido en la lista para abrir directamente la ventana de respuesta hacia ese corresponsal.
