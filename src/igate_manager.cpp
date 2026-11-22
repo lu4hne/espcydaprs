@@ -59,9 +59,8 @@ void IgateManager::connectWifi() {
         return;
     }
 
-    // Pausar muestreo ADC1 del módem y desactivar brownout temporalmente durante la calibración RF PHY
-    Modem.setPaused(true);
-    delay(10);
+    // Desactivar brownout temporalmente durante la calibración RF PHY de WiFi.
+    // NO pausar el módem AFSK: usa ADC1_CH7 (GPIO 35) en Core 1, que NO tiene conflicto con WiFi.
     WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
 
     if (WiFi.getMode() != WIFI_AP_STA) {
@@ -71,9 +70,6 @@ void IgateManager::connectWifi() {
     WiFi.setSleep(false);
     WiFi.setAutoReconnect(true);
     WiFi.begin(cfg.wifiSsid, cfg.wifiPass);
-
-    delay(30);
-    Modem.setPaused(false);
 
     _lastWifiAttemptMs = millis();
     _state = IGATE_WIFI_WAIT;
@@ -160,7 +156,7 @@ void IgateManager::update() {
             _client.stop();
         }
         _state = IGATE_WIFI_WAIT;
-        if (strlen(cfg.wifiSsid) > 0 && (now - _lastWifiAttemptMs >= 20000UL)) {
+        if (strlen(cfg.wifiSsid) > 0 && (now - _lastWifiAttemptMs >= 60000UL)) {
             connectWifi();
         }
         return;

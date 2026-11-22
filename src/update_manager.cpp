@@ -474,16 +474,12 @@ void UpdateManager::begin() {
 
 void UpdateManager::startWebPortal(bool forceAccessPoint) {
     if (forceAccessPoint || WiFi.status() != WL_CONNECTED) {
-        Modem.setPaused(true);
-        delay(10);
         WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
         WiFi.mode(WIFI_AP_STA);
         WiFi.setTxPower(WIFI_POWER_15dBm);
         char apName[28];
         snprintf(apName, sizeof(apName), "CYD-APRS-%s", Aprs.config().callsign);
         WiFi.softAP(apName);
-        delay(20);
-        Modem.setPaused(false);
         _apActive = true;
         Serial.printf("[WEB OTA] Punto de Acceso WiFi iniciado: SSID='%s' -> http://%s\n",
                       apName, WiFi.softAPIP().toString().c_str());

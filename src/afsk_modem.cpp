@@ -26,14 +26,26 @@ struct TxJob {
     bool loopback;
 };
 
+static TaskHandle_t s_rxTaskHandle = nullptr;
+
 static void afskDspTaskTrampoline(void* arg) {
     AfskModem* self = static_cast<AfskModem*>(arg);
     self->dspTaskLoop();
 }
 
-static void IRAM_ATTR afskRxTimerCallback(void* arg) {
+static void afskRxTaskTrampoline(void* arg) {
     AfskModem* self = static_cast<AfskModem*>(arg);
-    self->onRxTimerSample();
+    self->rxTaskLoop();
+}
+
+static void IRAM_ATTR afskRxHwTimerIsr() {
+    BaseType_t hpTaskWoken = pdFALSE;
+    if (s_rxTaskHandle) {
+        vTaskNotifyGiveFromISR(s_rxTaskHandle, &hpTaskWoken);
+        if (hpTaskWoken == pdTRUE) {
+            portYIELD_FROM_ISR();
+        }
+    }
 }
 
 AfskModem::AfskModem()
@@ -76,21 +88,39 @@ void AfskModem::begin() {
     adc1_config_width(ADC_WIDTH_BIT_12);
     adc1_config_channel_atten(ADC1_CHANNEL_7, ADC_ATTEN_DB_12);
 
-    _rxQueue = xQueueCreate(10, sizeof(RawAx25Frame));
+    _rxQueue = xQueueCreate(16, sizeof(RawAx25Frame));
     _txQueue = xQueueCreate(6, sizeof(TxJob));
 
-    // 1. Iniciar timer periódico de hardware (esp_timer) a 9600 Hz (104 us) para muestreo RX
-    //    Consume < 6% de CPU y deja 94% libre para la pila WiFi/TCP-IP y el Watchdog de Core 0.
-    esp_timer_create_args_t timerArgs = {};
-    timerArgs.callback = &afskRxTimerCallback;
-    timerArgs.arg = this;
-    timerArgs.dispatch_method = ESP_TIMER_TASK;
-    timerArgs.name = "afsk_rx_9600";
-    if (esp_timer_create(&timerArgs, &_rxTimer) == ESP_OK) {
-        esp_timer_start_periodic(_rxTimer, 1000000ULL / AFSK_SAMPLE_RATE); // 104 us
-    }
+    // 1. Lanzar tarea dedicada de recepción AFSK 9600 Hz en CORE 1 (prioridad 10: máxima prioridad de usuario,
+    //    muy por encima de loopTask=1 y AFSK_TX=4) y completamente aislada del driver WiFi/TCP-IP (Core 0).
+    xTaskCreatePinnedToCore(
+        afskRxTaskTrampoline,
+        "AFSK_RX",
+        3072,
+        this,
+        10,
+        &s_rxTaskHandle,
+        1
+    );
 
-    // 2. Lanzar tarea de transmisión AX.25 (duerme en xQueueReceive con 0% CPU cuando no transmite)
+    // 2. Iniciar Timer de Hardware 3 en Core 1 (1 MHz, alarma cada 104 us = 9600 Hz)
+    //    que despierta AFSK_RX mediante notificación ultrarrápida desde ISR.
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
+    _hwRxTimer = timerBegin(1000000);
+    if (_hwRxTimer) {
+        timerAttachInterrupt(_hwRxTimer, &afskRxHwTimerIsr);
+        timerAlarm(_hwRxTimer, 1000000ULL / AFSK_SAMPLE_RATE, true, 0);
+    }
+#else
+    _hwRxTimer = timerBegin(3, 80, true); // Prescaler 80 -> 1 MHz (1 us/tick)
+    if (_hwRxTimer) {
+        timerAttachInterrupt(_hwRxTimer, &afskRxHwTimerIsr, true);
+        timerAlarmWrite(_hwRxTimer, 1000000ULL / AFSK_SAMPLE_RATE, true); // 104 us auto-reload
+        timerAlarmEnable(_hwRxTimer);
+    }
+#endif
+
+    // 3. Lanzar tarea de transmisión AX.25 (duerme en xQueueReceive con 0% CPU cuando no transmite)
     xTaskCreatePinnedToCore(
         afskDspTaskTrampoline,
         "AFSK_TX",
@@ -203,6 +233,13 @@ void AfskModem::setPtt(bool active) {
             // mantiene apagado el LED Rojo (IO4) y nunca apaga el Backlight si el usuario eligió IO21/IO27.
             digitalWrite(_txAudioPin, HIGH);
         }
+    }
+}
+
+void AfskModem::rxTaskLoop() {
+    while (true) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        onRxTimerSample();
     }
 }
 

@@ -65,14 +65,15 @@ public:
     // Calcula el CRC-16 CCITT (AX.25 estándar: init 0xFFFF, poly 0x8408 reflejado)
     static uint16_t calcCrc16(const uint8_t* data, uint16_t len);
 
-    // Loop de tarea TX y callback de timer periódico RX (9600 Hz)
+    // Loop de tarea TX, tarea RX (Core 1, aislada del WiFi en Core 0) y muestreo 9600 Hz
     void dspTaskLoop();
+    void rxTaskLoop();
     void onRxTimerSample();
 
 private:
     QueueHandle_t _rxQueue;
     QueueHandle_t _txQueue;
-    esp_timer_handle_t _rxTimer = nullptr;
+    hw_timer_t* _hwRxTimer = nullptr;
 
     volatile bool _transmitting = false;
     volatile bool _paused = false;
