@@ -53,7 +53,7 @@ public:
     uint32_t getRxCrcFailCount() const { return _rxCrcFailCount; }
     uint32_t getRxAbortCount() const { return _rxAbortCount; }
     uint32_t getRxShortCount() const { return _rxShortCount; }
-    uint16_t getRxDcRaw() const { return (uint16_t)_dcEstimate; }
+    uint16_t getRxDcRaw() const { return (uint16_t)(_dcAcc >> 8); }
     uint8_t  getRxMarkPercent() const { return _rxMarkPct; }
     int16_t  getRxLastPeak() const { return _lastWindowPeak; }
     uint16_t getRxLastFailLen() const { return _lastFailLen; }
@@ -103,11 +103,11 @@ private:
     uint8_t _txVolume = 80;      // 10..100%
     uint8_t _txAudioPin = AFSK_DEFAULT_TX_PIN; // Pin en conector P3/CN1 (27, 21, 4, 17 o 26)
 
-    // Estado del Demodulador AFSK (RX)
+    // Estado del Demodulador AFSK (RX) — 100% punto fijo entero para máxima velocidad en Core 0
     int16_t _sampleBuf[AFSK_SAMPLES_PER_BIT];
     uint8_t _sampleIdx = 0;
-    float _dcEstimate = 2048.0f;
-    float _lpfCorr = 0.0f;
+    int32_t _dcAcc = 2048L << 8;
+    int32_t _lpfCorrInt = 0;
     bool _lastToneMark = true;
     int16_t _pllCounter = 0;
     bool _nrziLastTone = true;

@@ -2,7 +2,6 @@
 #include <soc/soc.h>
 #include <soc/rtc_cntl_reg.h>
 #include <nvs_flash.h>
-#include <esp_task_wdt.h>
 #include <esp_system.h>
 #include "config.h"
 #include "afsk_modem.h"
@@ -86,15 +85,9 @@ void setup() {
     Updater.begin();
     Ui.requestRedraw();
     Ui.update();
-
-    // 6. Activar Watchdog por hardware (30 s) sobre loop() para auto-recuperacion ante bloqueos I2C/SPI/RF
-    esp_task_wdt_init(30, true);
-    esp_task_wdt_add(NULL);
 }
 
 void loop() {
-    esp_task_wdt_reset();
-
     // 1. Actualizar decodificación de paquetes, sensores locales, GPS, baliza periódica y reintentos ACK
     Sensors.update();
     Aprs.update();

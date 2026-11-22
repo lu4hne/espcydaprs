@@ -214,15 +214,16 @@ void AfskModem::onRxTimerSample() {
     // Muestreo ADC a 9600 Hz en GPIO 35 (ADC1_CH7)
     int rawAdc = adc1_get_raw(ADC1_CHANNEL_7);
 
-    // Filtro IIR para remover componente DC (~1.65V -> ~2048)
-    _dcEstimate = 0.995f * _dcEstimate + 0.005f * (float)rawAdc;
-    int16_t centered = (int16_t)((float)rawAdc - _dcEstimate);
+    // Filtro IIR 100% entero (sin float) para remover componente DC (~1.65V -> ~2048)
+    int32_t dc = _dcAcc >> 8;
+    _dcAcc += (rawAdc - dc);
+    int16_t centered = (int16_t)(rawAdc - dc);
 
-    // Medición de nivel de audio y recorte ADC para el vúmetro y diagnóstico de pantalla
+    // Medición rápida de nivel de audio y recorte ADC (sin llamadas a millis() en el camino crítico)
     if (rawAdc <= 30 || rawAdc >= 4065) {
         _clipInWindow++;
     }
-    int16_t absSample = abs(centered);
+    int16_t absSample = (centered < 0) ? -centered : centered;
     if (absSample > _peakInWindow) {
         _peakInWindow = absSample;
     }
@@ -235,17 +236,13 @@ void AfskModem::onRxTimerSample() {
         _carrierDetected = (_peakInWindow > 70) || _rxInFrame;
         _rxMarkPct = (uint8_t)((_markInWindow * 100UL) / 960UL);
 
-        uint32_t nowMs = millis();
         if (_clipInWindow >= 10) {
             _lastErr = RX_ERR_CLIPPING;
-            _lastErrMs = nowMs;
         } else if (pct >= 20) {
             if (_rxFlagCount == _flagsAtLastWindow) {
                 if (_carrierNoFlagTicks < 255) _carrierNoFlagTicks++;
-                // Si hubo audio sostenido >= 400 ms sin ver ni una bandera 0x7E
-                if (_carrierNoFlagTicks >= 4 && (_lastErr == RX_ERR_NONE || _lastErr == RX_ERR_NO_FLAGS || (nowMs - _lastErrMs > 1500))) {
+                if (_carrierNoFlagTicks >= 4) {
                     _lastErr = RX_ERR_NO_FLAGS;
-                    _lastErrMs = nowMs;
                 }
             } else {
                 _carrierNoFlagTicks = 0;
@@ -261,7 +258,6 @@ void AfskModem::onRxTimerSample() {
     }
 
     // Procesar todas las muestras continuamente a 9600 Hz en el demodulador DSP
-    // sin omitir cruces por cero para preservar la fase exacta del lazo DPLL y correlador
     if (absSample > _rxPeakTrack) {
         _rxPeakTrack = absSample;
     }
@@ -294,7 +290,7 @@ void AfskModem::dspTaskLoop() {
             _rxInFrame = false;
             _rxBitIndex = 0;
             _rxFrameLen = 0;
-            _lpfCorr = 0.0f;
+            _lpfCorrInt = 0;
             _pllCounter = 0;
         }
 
@@ -395,29 +391,29 @@ void AfskModem::dspTaskLoop() {
 }
 
 void AfskModem::processRxSample(int16_t centeredSample) {
+    static_assert(AFSK_SAMPLES_PER_BIT == 8, "AFSK_SAMPLES_PER_BIT debe ser 8 para mascara & 7");
     _sampleBuf[_sampleIdx] = centeredSample;
-    _sampleIdx = (_sampleIdx + 1) % AFSK_SAMPLES_PER_BIT;
+    _sampleIdx = (_sampleIdx + 1) & 7;
 
-    // Correlación en cuadratura sobre la ventana deslizante de 8 muestras
+    // Correlación en cuadratura 100% entera sobre ventana deslizante de 8 muestras
     int32_t iMark = 0, qMark = 0;
     int32_t iSpace = 0, qSpace = 0;
 
-    for (uint8_t k = 0; k < AFSK_SAMPLES_PER_BIT; k++) {
-        uint8_t idx = (_sampleIdx + k) % AFSK_SAMPLES_PER_BIT;
-        int32_t s = _sampleBuf[idx];
+    for (uint8_t k = 0; k < 8; k++) {
+        int32_t s = _sampleBuf[(_sampleIdx + k) & 7];
         iMark  += (s * s_markCos[k]) >> 8;
         qMark  += (s * s_markSin[k]) >> 8;
         iSpace += (s * s_spaceCos[k]) >> 8;
         qSpace += (s * s_spaceSin[k]) >> 8;
     }
 
-    float energyMark  = (float)(iMark * iMark + qMark * qMark);
-    float energySpace = (float)(iSpace * iSpace + qSpace * qSpace);
-    float diff = energyMark - energySpace;
+    int32_t energyMark  = (iMark * iMark + qMark * qMark) >> 4;
+    int32_t energySpace = (iSpace * iSpace + qSpace * qSpace) >> 4;
+    int32_t diff = energyMark - energySpace;
 
-    // Filtro pasa-bajos post-detección (alpha=0.30 para suprimir rizado de batido 1200/2200 Hz)
-    _lpfCorr = 0.70f * _lpfCorr + 0.30f * diff;
-    bool currentToneMark = (_lpfCorr >= 0.0f);
+    // Filtro pasa-bajos post-detección entero (alpha = 5/16 = 0.3125, sin float)
+    _lpfCorrInt = (_lpfCorrInt * 11 + diff * 5) >> 4;
+    bool currentToneMark = (_lpfCorrInt >= 0);
     if (currentToneMark) {
         _markInWindow++;
     }
@@ -456,7 +452,6 @@ void AfskModem::processRxBit(bool nrziBit) {
                 _rxAbortCount++;
                 _lastFailLen = _rxFrameLen;
                 _lastErr = RX_ERR_ABORT;
-                _lastErrMs = millis();
             }
             _rxInFrame = false;
             _rxFrameLen = 0;
@@ -498,20 +493,17 @@ void AfskModem::processRxBit(bool nrziBit) {
                     validFrame.audioPeak = _rxPeakTrack;
                     xQueueSend(_rxQueue, &validFrame, 0);
                     _rxCount++;
-                    _lastRxOkMs = millis();
                     _lastErr = RX_ERR_NONE;
                 } else if (hasAudio) {
                     _rxCrcFailCount++;
                     _lastFailLen = _rxFrameLen;
                     _lastErr = RX_ERR_CRC_FAIL;
-                    _lastErrMs = millis();
                 }
             } else if (_rxInFrame && _rxFrameLen >= 3 && hasAudio) {
                 _rxShortCount++;
                 _lastFailLen = _rxFrameLen;
                 if (_lastErr != RX_ERR_CRC_FAIL) {
                     _lastErr = RX_ERR_SHORT;
-                    _lastErrMs = millis();
                 }
             }
             // Iniciar/reiniciar captura de nueva trama
