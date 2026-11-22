@@ -85,7 +85,7 @@ void AprsEngine::loadConfig() {
         strlcpy(_cfg.otaServerUrl, "", sizeof(_cfg.otaServerUrl));
         _cfg.ledBrightness = 1;
         _cfg.tftBrightness = 100;
-        _cfg.sensorModel = SENSOR_AUTO_I2C;
+        _cfg.sensorModel = SENSOR_DISABLED;
         _cfg.sensorPinProfile = SENSOR_PINS_16_17;
         _cfg.sensorBeaconMode = SENSOR_BCN_COMMENT;
         _cfg.tempOffsetC = 0.0f;
@@ -151,7 +151,7 @@ void AprsEngine::loadConfig() {
     _cfg.tftBrightness = prefs.getUChar("tftBrt", 100);
     if (_cfg.tftBrightness < 15 || _cfg.tftBrightness > 100) _cfg.tftBrightness = 100;
 
-    _cfg.sensorModel      = prefs.getUChar("snsMod", SENSOR_AUTO_I2C);
+    _cfg.sensorModel      = prefs.getUChar("snsMod", SENSOR_DISABLED);
     _cfg.sensorPinProfile = prefs.getUChar("snsPin", SENSOR_PINS_16_17);
     _cfg.sensorBeaconMode = prefs.getUChar("snsBcn", SENSOR_BCN_COMMENT);
     _cfg.tempOffsetC      = prefs.getFloat("snsTOff", 0.0f);

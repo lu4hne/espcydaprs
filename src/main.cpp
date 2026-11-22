@@ -76,11 +76,14 @@ void setup() {
     // 3. Verificar si existe /update.bin o /firmware.bin en la MicroSD al arrancar
     Updater.checkAndApplySdUpdateOnBoot(Ui.tft());
 
-    // 4. Iniciar Módem DSP AFSK 1200 bps con el pin TX configurado
+    // 4. Iniciar Sensores Meteorológicos ANTES del módem AFSK (si están habilitados)
+    //    para que Wire.begin()/Wire.end() nunca perturben el muestreo ADC1 a 9600 Hz
+    Sensors.begin();
+
+    // 5. Iniciar Módem DSP AFSK 1200 bps con el pin TX configurado (máxima prioridad RX)
     Modem.begin();
 
-    // 5. Iniciar Sensores Meteorológicos Locales, Cliente WiFi / IGate APRS-IS y Gestor OTA
-    Sensors.begin();
+    // 6. Iniciar Cliente WiFi / IGate APRS-IS y Gestor OTA
     Igate.begin();
     Updater.begin();
     Ui.requestRedraw();
