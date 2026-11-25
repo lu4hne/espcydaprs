@@ -47,6 +47,11 @@ public:
 
     void formatMyFullCall(char* out, size_t outSize) const;
 
+    // Diagnóstico y prueba de comandos GPS por Serial/BLE
+    void runGpsCommandTest();
+    void startGpsRawDump(uint16_t durationMs = 5000);
+    void sendGpsRawCommand(const char* cmd);
+
 private:
     TrackerConfig _cfg;
     GpsStatus     _gps;
@@ -58,6 +63,11 @@ private:
 
     bool     _sosActive = false;
     uint32_t _lastSosBeaconMs = 0;
+
+    // Dump NMEA en vivo (no bloqueante)
+    uint32_t _gpsRawUntilMs = 0;
+    char     _gpsLineBuf[120];
+    size_t   _gpsLineLen = 0;
 
     // Reintento de mensaje saliente pendiente de ACK
     bool     _pendingMsgActive = false;

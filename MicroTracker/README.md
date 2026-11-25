@@ -187,6 +187,9 @@ El MicroTracker expone el servicio **Nordic UART Service (NUS)** bajo el nombre 
 - `bcn` — Transmite una baliza de posición inmediatamente.
 - `loop` — Ejecuta la autoprueba interna de loopback AX.25/AFSK.
 - `status` — Muestra estado completo (GPS, satélites, coordenadas, velocidad, contadores TX/RX, nivel Audio RX, SOS y WiFi).
+- `gpstest` — Prueba bidireccional del módulo GPS (envía consultas `UBX-MON-VER`, `$PCAS06` y `$PMTK605` por `GPIO 21` y verifica respuesta y tramas NMEA en `GPIO 20`).
+- `gpsraw` — Muestra las tramas NMEA crudas del GPS en el monitor serie durante 5 segundos.
+- `gpscmd <comando>` — Envía un comando NMEA personalizado al GPS (calcula el checksum `*XX` automáticamente si falta) y muestra la respuesta.
 - `sos` / `sos off` — Activa o cancela el modo de emergencia SOS.
 - `wifi` — Enciende o apaga el Portal Web WiFi de configuración.
 - `help` — Lista los comandos disponibles.

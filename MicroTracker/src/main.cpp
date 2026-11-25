@@ -82,8 +82,16 @@ static void handleConsoleCommand(const char* rawCmd) {
         }
     } else if (strcasecmp(rawCmd, "status") == 0 || strcasecmp(rawCmd, "gps") == 0 || strcasecmp(rawCmd, "s") == 0) {
         sendConsoleStatus();
+    } else if (strcasecmp(rawCmd, "gpstest") == 0 || strcasecmp(rawCmd, "gps test") == 0) {
+        Tracker.runGpsCommandTest();
+    } else if (strcasecmp(rawCmd, "gpsraw") == 0 || strcasecmp(rawCmd, "gps raw") == 0) {
+        Tracker.startGpsRawDump(5000);
+    } else if (strncasecmp(rawCmd, "gpscmd ", 7) == 0) {
+        Tracker.sendGpsRawCommand(rawCmd + 7);
+    } else if (strncasecmp(rawCmd, "gps send ", 9) == 0) {
+        Tracker.sendGpsRawCommand(rawCmd + 9);
     } else if (strcasecmp(rawCmd, "help") == 0 || strcasecmp(rawCmd, "?") == 0) {
-        const char* helpTxt = "[HELP] Comandos: msg <CALL> <txt> | bcn | loop | status | sos | sos off | wifi";
+        const char* helpTxt = "[HELP] Comandos: msg <CALL> <txt> | bcn | loop | status | gpstest | gpsraw | gpscmd <NMEA> | sos | sos off | wifi";
         Serial.println(helpTxt);
         Ble.sendLine(helpTxt);
     } else {

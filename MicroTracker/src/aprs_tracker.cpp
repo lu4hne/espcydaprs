@@ -248,9 +248,29 @@ void AprsTracker::update() {
 }
 
 void AprsTracker::pollGps() {
+    bool dumpRaw = (_gpsRawUntilMs != 0);
+    if (dumpRaw && (int32_t)(millis() - _gpsRawUntilMs) >= 0) {
+        _gpsRawUntilMs = 0;
+        dumpRaw = false;
+        emitEvent("[GPS-RAW] Fin de captura.");
+    }
+
     while (Serial1.available() > 0) {
         char c = (char)Serial1.read();
         _gps.charsProcessed++;
+
+        if (dumpRaw) {
+            if (c == '\n') {
+                if (_gpsLineLen > 0) {
+                    _gpsLineBuf[_gpsLineLen] = '\0';
+                    Serial.printf("[NMEA] %s\n", _gpsLineBuf);
+                    _gpsLineLen = 0;
+                }
+            } else if (c != '\r' && c >= 32 && c <= 126 && _gpsLineLen < sizeof(_gpsLineBuf) - 1) {
+                _gpsLineBuf[_gpsLineLen++] = c;
+            }
+        }
+
         if (s_gps.encode(c)) {
             if (s_gps.location.isValid() && s_gps.location.age() < 5000) {
                 _gps.validFix = true;
@@ -264,6 +284,146 @@ void AprsTracker::pollGps() {
             if (s_gps.course.isValid())     _gps.courseDeg  = (uint16_t)s_gps.course.deg();
             if (s_gps.satellites.isValid()) _gps.satellites = (uint8_t)s_gps.satellites.value();
         }
+    }
+}
+
+void AprsTracker::startGpsRawDump(uint16_t durationMs) {
+    _gpsLineLen = 0;
+    _gpsRawUntilMs = millis() + durationMs;
+    emitEvent("[GPS-RAW] Mostrando tramas NMEA crudas por %u s (RX:IO%d TX:IO%d @ %u bps)...",
+              (unsigned)(durationMs / 1000), MT_GPS_RX_PIN, MT_GPS_TX_PIN, (unsigned)MT_GPS_BAUD_RATE);
+}
+
+void AprsTracker::sendGpsRawCommand(const char* cmd) {
+    if (!cmd || *cmd == '\0') return;
+
+    char txBuf[128];
+    if (cmd[0] == '$' && strchr(cmd, '*') == nullptr) {
+        uint8_t csum = 0;
+        for (const char* p = cmd + 1; *p; p++) csum ^= (uint8_t)(*p);
+        snprintf(txBuf, sizeof(txBuf), "%s*%02X\r\n", cmd, csum);
+    } else {
+        snprintf(txBuf, sizeof(txBuf), "%s\r\n", cmd);
+    }
+
+    Serial1.print(txBuf);
+    Serial1.flush();
+    Serial.printf("[GPS-CMD] Enviado: %s", txBuf);
+    startGpsRawDump(2500);
+}
+
+void AprsTracker::runGpsCommandTest() {
+    emitEvent("[GPS-TEST] Iniciando prueba en UART1 (RX:IO%d TX:IO%d @ %u bps)...",
+              MT_GPS_RX_PIN, MT_GPS_TX_PIN, (unsigned)MT_GPS_BAUD_RATE);
+    Serial.printf("[GPS-TEST] Acumulado previo -> chars:%lu | NMEA OK:%lu | FailCRC:%lu | Sat:%u | Fix:%s\n",
+                  (unsigned long)_gps.charsProcessed,
+                  (unsigned long)s_gps.passedChecksum(),
+                  (unsigned long)s_gps.failedChecksum(),
+                  (unsigned)_gps.satellites,
+                  _gps.validFix ? "SI" : "NO");
+
+    // Limpiar buffer viejo
+    while (Serial1.available() > 0) {
+        s_gps.encode((char)Serial1.read());
+        _gps.charsProcessed++;
+    }
+
+    // 1) Consulta u-blox UBX-MON-VER (NEO-6M / 7M / 8M / M10)
+    static const uint8_t ubxMonVer[] = { 0xB5, 0x62, 0x0A, 0x04, 0x00, 0x00, 0x0E, 0x34 };
+    Serial1.write(ubxMonVer, sizeof(ubxMonVer));
+    // 2) Consulta ATGM336H / CASIC
+    Serial1.print("$PCAS06,0*1B\r\n");
+    // 3) Consulta MTK / Quectel L80
+    Serial1.print("$PMTK605*31\r\n");
+    Serial1.flush();
+
+    uint32_t bytesRx = 0;
+    uint32_t nmeaLines = 0;
+    bool ubxReply = false;
+    bool nmeaCmdReply = false;
+    char sampleNmea[96] = "";
+    char replyInfo[96] = "";
+
+    // Estado simple para detectar cabecera UBX (0xB5 0x62 0x0A 0x04) y extraer texto ASCII
+    uint8_t ubxState = 0;
+    uint16_t ubxPayloadLeft = 0;
+    size_t ubxTextLen = 0;
+
+    char lineBuf[120];
+    size_t lineLen = 0;
+
+    uint32_t tStart = millis();
+    while (millis() - tStart < 2000UL) {
+        while (Serial1.available() > 0) {
+            uint8_t b = (uint8_t)Serial1.read();
+            bytesRx++;
+            _gps.charsProcessed++;
+            s_gps.encode((char)b);
+
+            // Detección de respuesta binaria UBX-MON-VER
+            if (ubxState == 0 && b == 0xB5) { ubxState = 1; }
+            else if (ubxState == 1) { ubxState = (b == 0x62) ? 2 : 0; }
+            else if (ubxState == 2) { ubxState = (b == 0x0A) ? 3 : 0; }
+            else if (ubxState == 3) { ubxState = (b == 0x04) ? 4 : 0; }
+            else if (ubxState == 4) { ubxPayloadLeft = b; ubxState = 5; }
+            else if (ubxState == 5) {
+                ubxPayloadLeft |= ((uint16_t)b << 8);
+                ubxReply = true;
+                ubxState = 6;
+                ubxTextLen = 0;
+            } else if (ubxState == 6) {
+                if (b >= 32 && b <= 126 && ubxTextLen < sizeof(replyInfo) - 1) {
+                    replyInfo[ubxTextLen++] = (char)b;
+                    replyInfo[ubxTextLen] = '\0';
+                } else if (b == 0 && ubxTextLen > 0 && replyInfo[ubxTextLen - 1] != ' ' && ubxTextLen < sizeof(replyInfo) - 1) {
+                    replyInfo[ubxTextLen++] = ' ';
+                    replyInfo[ubxTextLen] = '\0';
+                }
+                if (ubxPayloadLeft > 0) ubxPayloadLeft--;
+                if (ubxPayloadLeft == 0) ubxState = 0;
+            }
+
+            // Captura de líneas NMEA / respuestas ASCII
+            if (b == '\n') {
+                if (lineLen > 0) {
+                    lineBuf[lineLen] = '\0';
+                    if (lineBuf[0] == '$') {
+                        nmeaLines++;
+                        if (sampleNmea[0] == '\0') {
+                            strlcpy(sampleNmea, lineBuf, sizeof(sampleNmea));
+                        }
+                        if (strstr(lineBuf, "TXT") || strstr(lineBuf, "PMTK705") || strstr(lineBuf, "PMTK001")) {
+                            nmeaCmdReply = true;
+                            strlcpy(replyInfo, lineBuf, sizeof(replyInfo));
+                        }
+                    }
+                    lineLen = 0;
+                }
+            } else if (b != '\r' && b >= 32 && b <= 126 && lineLen < sizeof(lineBuf) - 1) {
+                lineBuf[lineLen++] = (char)b;
+            }
+        }
+        delay(5); // Cede CPU a AFSK_RX (prioridad 10)
+    }
+
+    Serial.printf("[GPS-TEST] En 2s -> Bytes RX:%lu | Tramas NMEA:%lu | Resp.UBX:%s | Resp.NMEA-CMD:%s\n",
+                  (unsigned long)bytesRx, (unsigned long)nmeaLines,
+                  ubxReply ? "SI" : "NO", nmeaCmdReply ? "SI" : "NO");
+    if (sampleNmea[0] != '\0') {
+        Serial.printf("[GPS-TEST] Ejemplo NMEA: %s\n", sampleNmea);
+    }
+    if (replyInfo[0] != '\0') {
+        Serial.printf("[GPS-TEST] Respuesta comando: %s\n", replyInfo);
+    }
+
+    if (ubxReply || nmeaCmdReply) {
+        emitEvent("[GPS-TEST] OK! GPS respondio a comandos (TX->RX y RX->TX OK).");
+    } else if (bytesRx > 0) {
+        emitEvent("[GPS-TEST] PARCIAL: Llegan %lu bytes (RX OK), pero sin respuesta a comandos. Revisa IO%d->GPS RX.",
+                  (unsigned long)bytesRx, MT_GPS_TX_PIN);
+    } else {
+        emitEvent("[GPS-TEST] SIN DATOS en IO%d. Revisa 3.3V/5V, GND y que GPS TX vaya a IO%d.",
+                  MT_GPS_RX_PIN, MT_GPS_RX_PIN);
     }
 }
 
