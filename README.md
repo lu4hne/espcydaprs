@@ -10,6 +10,9 @@ Permite conectar directamente un handy o base **Yaesu** o **Baofeng** (en VHF `1
 > 
 > *Incluye grabación con 1 clic por WebSerial, actualización rápida conservando tu indicativo y monitor serie en vivo para ver paquetes.*
 
+> ### 🛰️ Nuevo Complemento: MicroTracker ESP32-C3 SuperMini (`MicroTracker/`)
+> ¿Buscás un **tracker APRS ultracompacto sin pantalla** para llevar en bolsillo, bici o vehículo? Revisa el subproyecto **[MicroTracker/README.md](MicroTracker/README.md)** basado en **ESP32-C3 SuperMini** con GPS + SmartBeaconing™, portal de configuración WiFi bajo demanda, **botón SOS por hardware** y mensajería bidireccional por **Bluetooth BLE** mediante la **[Consola Móvil Web Bluetooth](https://lu4hne.github.io/espcydaprs/microtracker/)**.
+
 ---
 
 ## Características Principales

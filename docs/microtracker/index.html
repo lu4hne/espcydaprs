@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#0d131a">
+  <title>MicroTracker APRS — Consola BLE</title>
+  <style>
+    :root { --bg:#0d131a; --card:#16202b; --border:#2a3a4d; --accent:#38bdf8; --green:#22c55e; --red:#ef4444; --orange:#f59e0b; --text:#e6eef7; --muted:#94a3b8; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--text); display:flex; flex-direction:column; height:100dvh; }
+    header { background:var(--card); border-bottom:1px solid var(--border); padding:10px 14px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
+    header h1 { margin:0; font-size:16px; color:var(--accent); }
+    .badge { font-size:12px; padding:3px 8px; border-radius:999px; background:#334155; color:#cbd5e1; }
+    .badge.ok { background:#14532d; color:#86efac; }
+    .toolbar { display:flex; gap:6px; padding:8px 10px; background:#111922; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+    button { border:none; border-radius:7px; padding:8px 12px; font-weight:700; font-size:13px; cursor:pointer; }
+    .btn-ble { background:var(--accent); color:#082f49; }
+    .btn-bcn { background:var(--green); color:#052e16; }
+    .btn-wifi { background:#334155; color:#e2e8f0; }
+    .btn-sos { background:var(--red); color:#fff; }
+    .btn-stat { background:var(--orange); color:#1c1917; }
+    button:disabled { opacity:.45; cursor:not-allowed; }
+    #statusLine { font-size:12px; color:#a5f3fc; background:#0b1117; padding:6px 12px; border-bottom:1px solid var(--border); font-family:monospace; white-space:nowrap; overflow-x:auto; }
+    #chat { flex:1; overflow-y:auto; padding:10px; display:flex; flex-direction:column; gap:7px; }
+    .msg { max-width:92%; padding:8px 11px; border-radius:10px; font-size:14px; line-height:1.35; word-break:break-word; }
+    .msg.in  { align-self:flex-start; background:#1e293b; border:1px solid #334155; }
+    .msg.out { align-self:flex-end; background:#0c4a6e; border:1px solid #0284c7; }
+    .msg.sys { align-self:center; background:#111922; color:var(--muted); font-size:12px; font-family:monospace; border:1px solid #1e293b; }
+    .msg.ack { align-self:center; background:#14532d; color:#86efac; font-size:12px; }
+    .msg.sos { align-self:center; background:#7f1d1d; color:#fecaca; font-weight:700; }
+    .compose { background:var(--card); border-top:1px solid var(--border); padding:8px 10px; display:flex; flex-direction:column; gap:6px; }
+    .compose-row { display:flex; gap:6px; }
+    input { background:var(--bg); border:1px solid var(--border); color:#fff; border-radius:7px; padding:9px 10px; font-size:14px; }
+    #destInput { width:125px; text-transform:uppercase; font-weight:700; color:#fbbf24; }
+    #textInput { flex:1; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>MicroTracker APRS BLE</h1>
+    <span id="bleBadge" class="badge">Desconectado</span>
+  </header>
+
+  <div class="toolbar">
+    <button id="btnConnect" class="btn-ble" onclick="toggleBle()">Conectar BLE</button>
+    <button class="btn-bcn act" onclick="sendCmd('bcn')" disabled>Baliza</button>
+    <button class="btn-stat act" onclick="sendCmd('status')" disabled>Estado</button>
+    <button class="btn-wifi act" onclick="sendCmd('wifi')" disabled>Portal WiFi</button>
+    <button class="btn-sos act" onclick="triggerSos()" disabled>SOS</button>
+  </div>
+
+  <div id="statusLine">Conecta tu ESP32-C3 MicroTracker por Bluetooth (Chrome Android / Bluefy iOS)</div>
+
+  <div id="chat"></div>
+
+  <div class="compose">
+    <div class="compose-row">
+      <input id="destInput" placeholder="DESTINO" maxlength="9" value="LU4HNE-10">
+      <input id="textInput" placeholder="Escribe mensaje APRS..." maxlength="60" onkeydown="if(event.key==='Enter') sendMsg()">
+      <button class="btn-ble act" onclick="sendMsg()" disabled>Enviar</button>
+    </div>
+  </div>
+
+<script>
+const NUS_SERVICE = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+const NUS_RX      = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
+const NUS_TX      = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+
+let device = null, rxChar = null, txChar = null, rxBuf = '';
+const encoder = new TextEncoder(), decoder = new TextDecoder();
+
+function addBubble(text, cls = 'sys') {
+  const div = document.createElement('div');
+  div.className = 'msg ' + cls;
+  div.textContent = text;
+  const chat = document.getElementById('chat');
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function setConnected(ok, name = '') {
+  const b = document.getElementById('bleBadge');
+  b.textContent = ok ? ('Conectado: ' + name) : 'Desconectado';
+  b.className = 'badge' + (ok ? ' ok' : '');
+  document.getElementById('btnConnect').textContent = ok ? 'Desconectar' : 'Conectar BLE';
+  document.querySelectorAll('.act').forEach(el => el.disabled = !ok);
+}
+
+async function toggleBle() {
+  if (device && device.gatt.connected) {
+    device.gatt.disconnect();
+    setConnected(false);
+    return;
+  }
+  if (!navigator.bluetooth) {
+    alert('Tu navegador no soporta Web Bluetooth. Usa Google Chrome en Android o Bluefy en iOS.');
+    return;
+  }
+  try {
+    device = await navigator.bluetooth.requestDevice({
+      filters: [{ services: [NUS_SERVICE] }],
+      optionalServices: [NUS_SERVICE]
+    });
+    device.addEventListener('gattserverdisconnected', () => {
+      setConnected(false);
+      addBubble('Bluetooth desconectado', 'sys');
+    });
+    const server = await device.gatt.connect();
+    const service = await server.getPrimaryService(NUS_SERVICE);
+    rxChar = await service.getCharacteristic(NUS_RX);
+    txChar = await service.getCharacteristic(NUS_TX);
+    await txChar.startNotifications();
+    txChar.addEventListener('characteristicvaluechanged', onNotify);
+    setConnected(true, device.name || 'MicroTracker');
+    addBubble('Conectado a ' + (device.name || 'MicroTracker'), 'ack');
+    await sendCmd('status');
+  } catch (e) {
+    addBubble('Error BLE: ' + e.message, 'sys');
+  }
+}
+
+function onNotify(event) {
+  rxBuf += decoder.decode(event.target.value, { stream: true });
+  let idx;
+  while ((idx = rxBuf.indexOf('\n')) >= 0) {
+    const line = rxBuf.slice(0, idx).trim();
+    rxBuf = rxBuf.slice(idx + 1);
+    if (!line) continue;
+    if (line.startsWith('[STATUS]')) {
+      document.getElementById('statusLine').textContent = line.replace('[STATUS] ', '');
+    } else if (line.startsWith('[MSG]')) {
+      addBubble(line.replace('[MSG] ', ''), 'in');
+    } else if (line.startsWith('[ACK]')) {
+      addBubble(line, 'ack');
+    } else if (line.startsWith('[SOS]')) {
+      addBubble(line, 'sos');
+    } else {
+      addBubble(line, 'sys');
+    }
+  }
+}
+
+async function sendCmd(cmd) {
+  if (!rxChar) return;
+  await rxChar.writeValue(encoder.encode(cmd + '\n'));
+}
+
+async function sendMsg() {
+  const dest = document.getElementById('destInput').value.trim().toUpperCase();
+  const txt  = document.getElementById('textInput').value.trim();
+  if (!dest || !txt) return;
+  await sendCmd('msg ' + dest + ' ' + txt);
+  addBubble('Yo -> ' + dest + ': ' + txt, 'out');
+  document.getElementById('textInput').value = '';
+}
+
+async function triggerSos() {
+  if (confirm('¿Activar señal de EMERGENCIA SOS (\\!) por RF?\n(Pulsa Cancelar para enviar "sos off" si deseas cancelar un SOS activo)')) {
+    await sendCmd('sos');
+  } else if (confirm('¿Deseas CANCELAR una emergencia SOS activa?')) {
+    await sendCmd('sos off');
+  }
+}
+</script>
+</body>
+</html>
