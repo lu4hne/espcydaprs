@@ -2,6 +2,7 @@
 #include "afsk_modem.h"
 #include "ax25_aprs.h"
 #include "igate_manager.h"
+#include "sensor_manager.h"
 #include "ui_manager.h"
 #include <soc/soc.h>
 #include <soc/rtc_cntl_reg.h>
@@ -599,15 +600,18 @@ void UpdateManager::handleHttpRoot() {
     html += "<div class='row'><div><label>Indicativo:</label><input name='call' maxlength='6' value='" + String(c.callsign) + "' required></div>";
     html += "<div><label>SSID (0-15):</label><input type='number' name='ssid' min='0' max='15' value='" + String(c.ssid) + "'></div></div>";
 
-    html += "<div class='row'><div><label>Posición:</label><select name='posMode'>";
+    html += "<div class='row'><div><label>Posición (GPS excluye Sensor):</label><select name='posMode'>";
     html += "<option value='0'" + String(c.posMode == POS_MODE_FIXED ? " selected" : "") + ">Coordenadas Fijas</option>";
-    html += "<option value='1'" + String(c.posMode == POS_MODE_GPS ? " selected" : "") + ">GPS Externo UART</option></select></div>";
-    html += "<div><label>Intervalo Baliza (s):</label><input type='number' name='bcnInt' min='30' max='3600' value='" + String(c.beaconIntervalSec) + "'></div></div>";
+    html += "<option value='1'" + String(c.posMode == POS_MODE_GPS ? " selected" : "") + ">GPS Externo UART (Apaga Sensor)</option></select></div>";
+    html += "<div><label>Sensor Clima I2C (Solo Pos Fija):</label><select name='snsMod'>";
+    html += "<option value='5'" + String(c.sensorModel != SENSOR_BMP_BME280 ? " selected" : "") + ">Apagado</option>";
+    html += "<option value='1'" + String(c.sensorModel == SENSOR_BMP_BME280 ? " selected" : "") + ">BME280 / BMP280 (I2C)</option></select></div></div>";
+
+    html += "<div class='row'><div><label>Intervalo Baliza (s):</label><input type='number' name='bcnInt' min='30' max='3600' value='" + String(c.beaconIntervalSec) + "'></div>";
+    html += "<div><label>Comentario APRS:</label><input name='comm' maxlength='42' value='" + String(c.comment) + "'></div></div>";
 
     html += "<div class='row'><div><label>Latitud Fija (Sur -):</label><input name='lat' value='" + String(c.fixedLat, 5) + "'></div>";
     html += "<div><label>Longitud Fija (Oeste -):</label><input name='lon' value='" + String(c.fixedLon, 5) + "'></div></div>";
-
-    html += "<label>Comentario APRS:</label><input name='comm' maxlength='42' value='" + String(c.comment) + "'>";
 
     html += "<h2 style='margin-top:18px;'>2. Red WiFi e IGate APRS-IS</h2>";
     html += "<div class='row'><div><label>WiFi SSID:</label><input name='wssid' maxlength='32' value='" + String(c.wifiSsid) + "'></div>";
@@ -676,6 +680,14 @@ void UpdateManager::handleHttpSaveConfig() {
     }
     if (_server.hasArg("ssid")) c.ssid = (uint8_t)constrain(_server.arg("ssid").toInt(), 0, 15);
     if (_server.hasArg("posMode")) c.posMode = (uint8_t)constrain(_server.arg("posMode").toInt(), 0, 1);
+    if (_server.hasArg("snsMod")) {
+        int sm = _server.arg("snsMod").toInt();
+        c.sensorModel = (sm == SENSOR_BMP_BME280) ? SENSOR_BMP_BME280 : SENSOR_DISABLED;
+    }
+    // Exclusión mutua estricta: si se elige GPS externo, el sensor I2C queda apagado
+    if (c.posMode == POS_MODE_GPS) {
+        c.sensorModel = SENSOR_DISABLED;
+    }
     if (_server.hasArg("bcnInt")) c.beaconIntervalSec = (uint16_t)constrain(_server.arg("bcnInt").toInt(), 30, 3600);
     if (_server.hasArg("lat")) c.fixedLat = _server.arg("lat").toDouble();
     if (_server.hasArg("lon")) c.fixedLon = _server.arg("lon").toDouble();
@@ -702,6 +714,7 @@ void UpdateManager::handleHttpSaveConfig() {
     if (_server.hasArg("emgSnd")) c.emergSoundAlert = (_server.arg("emgSnd").toInt() == 1);
 
     Aprs.saveConfig();
+    Sensors.forceDetectAndRead();
     Ui.applyDisplayHardware();
     Igate.reconnectNow();
     Ui.requestRedraw();

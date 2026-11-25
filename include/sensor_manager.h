@@ -4,15 +4,15 @@
 #include "config.h"
 
 struct SensorReading {
-    bool     connected;       // true SOLO si el sensor físico responde con datos válidos
-    bool     hasHumidity;     // false en BMP280, true en BME280 / AHT20 / DHT22 / DHT11
-    bool     hasPressure;     // true en BMP280 / BME280, false en AHT20 / DHT
+    bool     connected;       // true SOLO si el sensor físico BME280/BMP280 responde con datos válidos
+    bool     hasHumidity;     // false en BMP280, true en BME280
+    bool     hasPressure;     // true en BMP280 / BME280
     float    temperatureC;    // Temperatura en °C (con offset aplicado)
     float    humidityPct;     // Humedad relativa 0..100% (con offset aplicado)
     float    pressureHpa;     // Presión atmosférica en hPa (mbar)
-    uint8_t  i2cAddr;         // Dirección I2C detectada (0x76, 0x77, 0x38 o 0 para DHT)
-    char     chipName[16];    // Ej: "BMP280", "BME280", "AHT20", "DHT22", "DHT11", "SIN SENSOR"
-    char     statusText[40];  // Estado detallado para mostrar en la pestaña SENS
+    uint8_t  i2cAddr;         // Dirección I2C detectada (0x76 o 0x77)
+    char     chipName[16];    // Ej: "BMP280", "BME280", "APAGADO", "SIN SENSOR"
+    char     statusText[44];  // Estado detallado para mostrar en CONF 5/7
     uint32_t lastReadMs;
 };
 
@@ -58,8 +58,6 @@ private:
     int8_t   _dig_H6 = 0;
 
     bool initAndReadBmpBme280(int8_t sda, int8_t scl);
-    bool initAndReadAht20(int8_t sda, int8_t scl);
-    bool readDhtSensor(int8_t pin, bool isDht22);
 
     bool i2cWriteReg(uint8_t addr, uint8_t reg, uint8_t val);
     bool i2cReadBytes(uint8_t addr, uint8_t reg, uint8_t* buf, size_t len);

@@ -1,639 +1,738 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ESP32 CYD APRS — Instalador y Actualizador Web Online</title>
-<meta name="description" content="Instalador y actualizador web para ESP32 CYD APRS Transceiver / IGate / WX por WebSerial en Google Chrome y Edge. LU4HNE.">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220%22%3E%3Ctext y=%2226%22 font-size=%2226%22>📻</text></svg>">
-<script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
-<style>
-  :root {
-    --bg: #0b1118;
-    --card: #131f2d;
-    --card-hover: #18283a;
-    --border: #223548;
-    --accent: #00bcd4;
-    --accent-glow: rgba(0, 188, 212, 0.25);
-    --green: #2ecc71;
-    --orange: #f39c12;
-    --red: #e74c3c;
-    --text: #f0f5fa;
-    --muted: #8ea4bb;
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    padding: 20px 14px;
-    background: var(--bg);
-    color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    line-height: 1.5;
-  }
-  .container {
-    max-width: 820px;
-    margin: 0 auto;
-  }
-  header {
-    text-align: center;
-    margin-bottom: 24px;
-    padding: 10px 0;
-  }
-  .badge {
-    display: inline-block;
-    background: rgba(0, 188, 212, 0.15);
-    color: var(--accent);
-    border: 1px solid var(--accent);
-    border-radius: 20px;
-    padding: 3px 12px;
-    font-size: 12px;
-    font-weight: 700;
-    margin-bottom: 8px;
-    letter-spacing: 0.5px;
-  }
-  h1 {
-    margin: 6px 0;
-    color: #ffffff;
-    font-size: 26px;
-    letter-spacing: -0.5px;
-  }
-  h1 span { color: var(--accent); }
-  .lead {
-    color: var(--muted);
-    font-size: 14.5px;
-    max-width: 640px;
-    margin: 0 auto;
-  }
-  .card {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 20px;
-    margin-bottom: 18px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.35);
-  }
-  .card-title {
-    font-size: 16px;
-    font-weight: 700;
-    color: var(--accent);
-    margin: 0 0 12px 0;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .btn-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-    margin-top: 12px;
-  }
-  @media (max-width: 640px) {
-    .btn-grid { grid-template-columns: 1fr; }
-  }
-  .flash-btn {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    justify-content: center;
-    background: var(--card-hover);
-    border: 1.5px solid var(--border);
-    border-radius: 10px;
-    padding: 16px 18px;
-    color: var(--text);
-    cursor: pointer;
-    transition: all 0.2s ease;
-    text-align: left;
-    width: 100%;
-  }
-  .flash-btn:hover:not(:disabled) {
-    border-color: var(--accent);
-    background: #1b2e44;
-    transform: translateY(-2px);
-    box-shadow: 0 6px 18px var(--accent-glow);
-  }
-  .flash-btn:disabled {
-    opacity: 0.45;
-    cursor: not-allowed;
-  }
-  .flash-btn.primary {
-    border-color: rgba(46, 204, 113, 0.5);
-  }
-  .flash-btn.primary:hover:not(:disabled) {
-    border-color: var(--green);
-    box-shadow: 0 6px 18px rgba(46, 204, 113, 0.25);
-  }
-  .btn-tag {
-    font-size: 11px;
-    font-weight: 800;
-    padding: 2px 7px;
-    border-radius: 4px;
-    margin-bottom: 6px;
-    text-transform: uppercase;
-  }
-  .btn-tag.green { background: var(--green); color: #06150b; }
-  .btn-tag.blue  { background: var(--accent); color: #041217; }
-  .btn-name {
-    font-size: 15px;
-    font-weight: 700;
-    margin-bottom: 4px;
-  }
-  .btn-desc {
-    font-size: 12px;
-    color: var(--muted);
-    line-height: 1.35;
-  }
-  .custom-upload {
-    margin-top: 14px;
-    padding-top: 14px;
-    border-top: 1px dashed var(--border);
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    flex-wrap: wrap;
-    font-size: 13px;
-    color: var(--muted);
-  }
-  .custom-upload input[type="file"] {
-    background: var(--bg);
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 6px 10px;
-    font-size: 12px;
-  }
-  .progress-wrap {
-    width: 100%;
-    height: 18px;
-    background: #080c12;
-    border: 1px solid var(--border);
-    border-radius: 9px;
-    overflow: hidden;
-    margin: 14px 0 10px 0;
-  }
-  .progress-bar {
-    height: 100%;
-    width: 0%;
-    background: linear-gradient(90deg, var(--accent), var(--green));
-    transition: width 0.2s;
-  }
-  .log-terminal {
-    background: #070c12;
-    color: #72f798;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 12px 14px;
-    height: 210px;
-    overflow-y: auto;
-    font-family: "Cascadia Code", Consolas, "Courier New", monospace;
-    font-size: 12px;
-    line-height: 1.45;
-    margin-top: 10px;
-    white-space: pre-wrap;
-  }
-  .tip-box {
-    background: rgba(243, 156, 18, 0.1);
-    border-left: 4px solid var(--orange);
-    border-radius: 0 8px 8px 0;
-    padding: 10px 14px;
-    font-size: 13px;
-    color: #f7d794;
-    margin-top: 12px;
-  }
-  .tip-box strong { color: var(--orange); }
-  .action-row {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-    margin-top: 10px;
-  }
-  .cmd-btn {
-    background: var(--card-hover);
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 7px 12px;
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-  .cmd-btn:hover:not(:disabled) {
-    border-color: var(--accent);
-    color: var(--accent);
-  }
-  .cmd-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-  .grid-2 {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 14px;
-  }
-  @media (max-width: 640px) {
-    .grid-2 { grid-template-columns: 1fr; }
-  }
-  ul.info-list {
-    margin: 0;
-    padding-left: 20px;
-    font-size: 13px;
-    color: var(--muted);
-  }
-  ul.info-list li { margin-bottom: 6px; }
-  ul.info-list strong { color: var(--text); }
-  footer {
-    text-align: center;
-    color: var(--muted);
-    font-size: 12px;
-    margin-top: 28px;
-    padding-top: 14px;
-    border-top: 1px solid var(--border);
-  }
-  footer a { color: var(--accent); text-decoration: none; }
-  footer a:hover { text-decoration: underline; }
-  .standard-web-tools {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    background: rgba(0,0,0,0.25);
-    padding: 12px 16px;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    margin-top: 12px;
-  }
-  .standard-web-tools span {
-    font-size: 13px;
-    color: var(--muted);
-  }
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ESP32 CYD APRS — Instalador y Actualizador Web Online</title>
+  <meta name="description"
+    content="Instalador y actualizador web para ESP32 CYD APRS Transceiver / IGate / WX por WebSerial en Google Chrome y Edge. LU4HNE.">
+  <link rel="icon"
+    href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220%22%3E%3Ctext y=%2226%22 font-size=%2226%22>📻</text></svg>">
+  <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+  <style>
+    :root {
+      --bg: #0b1118;
+      --card: #131f2d;
+      --card-hover: #18283a;
+      --border: #223548;
+      --accent: #00bcd4;
+      --accent-glow: rgba(0, 188, 212, 0.25);
+      --green: #2ecc71;
+      --orange: #f39c12;
+      --red: #e74c3c;
+      --text: #f0f5fa;
+      --muted: #8ea4bb;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 20px 14px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      line-height: 1.5;
+    }
+
+    .container {
+      max-width: 820px;
+      margin: 0 auto;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 24px;
+      padding: 10px 0;
+    }
+
+    .badge {
+      display: inline-block;
+      background: rgba(0, 188, 212, 0.15);
+      color: var(--accent);
+      border: 1px solid var(--accent);
+      border-radius: 20px;
+      padding: 3px 12px;
+      font-size: 12px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      letter-spacing: 0.5px;
+    }
+
+    h1 {
+      margin: 6px 0;
+      color: #ffffff;
+      font-size: 26px;
+      letter-spacing: -0.5px;
+    }
+
+    h1 span {
+      color: var(--accent);
+    }
+
+    .lead {
+      color: var(--muted);
+      font-size: 14.5px;
+      max-width: 640px;
+      margin: 0 auto;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 18px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    }
+
+    .card-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--accent);
+      margin: 0 0 12px 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    @media (max-width: 640px) {
+      .btn-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .flash-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: center;
+      background: var(--card-hover);
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      padding: 16px 18px;
+      color: var(--text);
+      cursor: pointer;
+      transition: all 0.2s ease;
+      text-align: left;
+      width: 100%;
+    }
+
+    .flash-btn:hover:not(:disabled) {
+      border-color: var(--accent);
+      background: #1b2e44;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 18px var(--accent-glow);
+    }
+
+    .flash-btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .flash-btn.primary {
+      border-color: rgba(46, 204, 113, 0.5);
+    }
+
+    .flash-btn.primary:hover:not(:disabled) {
+      border-color: var(--green);
+      box-shadow: 0 6px 18px rgba(46, 204, 113, 0.25);
+    }
+
+    .btn-tag {
+      font-size: 11px;
+      font-weight: 800;
+      padding: 2px 7px;
+      border-radius: 4px;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+    }
+
+    .btn-tag.green {
+      background: var(--green);
+      color: #06150b;
+    }
+
+    .btn-tag.blue {
+      background: var(--accent);
+      color: #041217;
+    }
+
+    .btn-name {
+      font-size: 15px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    .btn-desc {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.35;
+    }
+
+    .custom-upload {
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px dashed var(--border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .custom-upload input[type="file"] {
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 12px;
+    }
+
+    .progress-wrap {
+      width: 100%;
+      height: 18px;
+      background: #080c12;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      overflow: hidden;
+      margin: 14px 0 10px 0;
+    }
+
+    .progress-bar {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--accent), var(--green));
+      transition: width 0.2s;
+    }
+
+    .log-terminal {
+      background: #070c12;
+      color: #72f798;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      height: 210px;
+      overflow-y: auto;
+      font-family: "Cascadia Code", Consolas, "Courier New", monospace;
+      font-size: 12px;
+      line-height: 1.45;
+      margin-top: 10px;
+      white-space: pre-wrap;
+    }
+
+    .tip-box {
+      background: rgba(243, 156, 18, 0.1);
+      border-left: 4px solid var(--orange);
+      border-radius: 0 8px 8px 0;
+      padding: 10px 14px;
+      font-size: 13px;
+      color: #f7d794;
+      margin-top: 12px;
+    }
+
+    .tip-box strong {
+      color: var(--orange);
+    }
+
+    .action-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+
+    .cmd-btn {
+      background: var(--card-hover);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 7px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .cmd-btn:hover:not(:disabled) {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .cmd-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+
+    @media (max-width: 640px) {
+      .grid-2 {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    ul.info-list {
+      margin: 0;
+      padding-left: 20px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    ul.info-list li {
+      margin-bottom: 6px;
+    }
+
+    ul.info-list strong {
+      color: var(--text);
+    }
+
+    footer {
+      text-align: center;
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 28px;
+      padding-top: 14px;
+      border-top: 1px solid var(--border);
+    }
+
+    footer a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    footer a:hover {
+      text-decoration: underline;
+    }
+
+    .standard-web-tools {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(0, 0, 0, 0.25);
+      padding: 12px 16px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      margin-top: 12px;
+    }
+
+    .standard-web-tools span {
+      font-size: 13px;
+      color: var(--muted);
+    }
+  </style>
 </head>
+
 <body>
 
-<div class="container">
-  <header>
-    <div class="badge">PROYECTO OPEN SOURCE • LU4HNE</div>
-    <h1>ESP32 CYD <span>APRS 1200 bps</span></h1>
-    <div class="lead">Instalador y actualizador web directo desde el navegador (Google Chrome, Microsoft Edge, Brave u Opera) mediante WebSerial sin instalar ningún programa en tu PC.</div>
-  </header>
+  <div class="container">
+    <header>
+      <div class="badge">PROYECTO OPEN SOURCE • LU4HNE</div>
+      <h1>ESP32 CYD <span>APRS 1200 bps</span></h1>
+      <div class="lead">Instalador y actualizador web directo desde el navegador (Google Chrome, Microsoft Edge, Brave u
+        Opera) mediante WebSerial sin instalar ningún programa en tu PC.</div>
+    </header>
 
-  <!-- PASO 1: INSTALADOR PRINCIPAL -->
-  <div class="card">
-    <div class="card-title">
-      <span>⚡</span> Paso 1: Conecta tu placa por USB y elige la acción
-    </div>
-    <div style="font-size: 13px; color: var(--muted); margin-bottom: 8px;">
-      Compatible con placas <strong>ESP32-2432S024C</strong> (2.4" táctil) y <strong>ESP32-2432S028R</strong> (2.8" pantalla amarilla).
-    </div>
-
-    <div class="btn-grid">
-      <!-- BOTÓN INSTALACIÓN COMPLETA -->
-      <button id="btnFull" class="flash-btn primary" onclick="startFlash('full')">
-        <span class="btn-tag green">Recomendado</span>
-        <span class="btn-name">Instalación Completa (Desde Cero)</span>
-        <span class="btn-desc">Graba el firmware completo v1.6.7 (Bootloader + Particiones + App en 0x0000). Ideal para placas nuevas o recién compradas.</span>
-      </button>
-
-      <!-- BOTÓN ACTUALIZAR -->
-      <button id="btnUpdate" class="flash-btn" onclick="startFlash('update')">
-        <span class="btn-tag blue">Actualización Rápida</span>
-        <span class="btn-name">Solo Actualizar Firmware</span>
-        <span class="btn-desc">Actualiza la aplicación (Offset 0x10000) conservando tus configuraciones guardadas de Indicativo, SSID, Clave WiFi y coordenadas.</span>
-      </button>
-    </div>
-
-    <!-- Opcional: Cargar .bin manual -->
-    <div class="custom-upload">
-      <span>O graba un archivo compilado local:</span>
-      <input type="file" id="localBinFile" accept=".bin">
-      <button id="btnCustom" class="cmd-btn" onclick="startFlash('custom')">Grabar Archivo Seleccionado</button>
-    </div>
-
-    <!-- Barra de progreso -->
-    <div class="progress-wrap">
-      <div id="progBar" class="progress-bar"></div>
-    </div>
-
-    <!-- Consola de salida -->
-    <div id="logBox" class="log-terminal">[Listo] Conecta tu placa ESP32 CYD por cable USB a la PC y haz clic en alguno de los botones arriba.
-Navegadores soportados: Google Chrome, Microsoft Edge, Brave u Opera (con WebSerial activo).</div>
-
-    <div class="tip-box">
-      <strong>TIP IMPORTANTE SI LA PANTALLA QUEDA BLANCA O CON COLORES INVERTIDOS:</strong>
-      Existen variantes de la placa CYD (controlador <code>ILI9341</code> y <code>ST7789</code>). Si al encender la pantalla queda en blanco, <strong>mantén presionado el botón físico BOOT durante 2 segundos</strong> para cambiar de controlador. Si la imagen se ve con los <strong>colores invertidos (negativo)</strong>, toca el botón <strong><code>NORM / INV</code></strong> en <code>CONF 2/7</code>, envía <code>'i'</code> por el Monitor Serie o actívalo desde el Portal Web OTA.
-    </div>
-
-    <!-- Botón alternativo ESP Web Tools estándar -->
-    <div class="standard-web-tools">
-      <span>También puedes usar el botón estándar oficial ESP Web Tools:</span>
-      <esp-web-install-button manifest="manifest.json"></esp-web-install-button>
-    </div>
-  </div>
-
-  <!-- PASO 2: MONITOR SERIE WEB EN VIVO -->
-  <div class="card">
-    <div class="card-title">
-      <span>📡</span> Monitor Serie USB en Vivo (115200 baudios)
-    </div>
-    <div style="font-size: 13px; color: var(--muted); margin-bottom: 8px;">
-      Permite ver en tiempo real los paquetes APRS que tu placa decodifica por audio, el estado del GPS, conexión WiFi/IGate o enviar comandos de prueba desde el navegador:
-    </div>
-
-    <div class="action-row">
-      <button id="btnSerialConnect" class="cmd-btn" style="background: var(--accent); color:#000;" onclick="toggleSerialMonitor()">Abrir Monitor Serie USB</button>
-      <button class="cmd-btn serial-act" onclick="sendSerialCmd('b')" disabled>Baliza RF ('b')</button>
-      <button class="cmd-btn serial-act" onclick="sendSerialCmd('l')" disabled>Test Loopback ('l')</button>
-      <button class="cmd-btn serial-act" onclick="sendSerialCmd('d')" disabled>Alternar Pantalla ST/ILI ('d')</button>
-      <button class="cmd-btn serial-act" onclick="sendSerialCmd('i')" disabled>Invertir Color ('i')</button>
-      <button class="cmd-btn serial-act" onclick="sendSerialCmd('s')" disabled>Ver Estado ('s')</button>
-      <button class="cmd-btn serial-act" onclick="clearSerialLog()" disabled>Limpiar</button>
-    </div>
-
-    <div id="serialBox" class="log-terminal" style="height: 180px; color: #a4e5ff;">[Monitor Serie Desconectado] Haz clic en 'Abrir Monitor Serie USB' para conectar a 115200 baudios.</div>
-  </div>
-
-  <!-- GUÍA RÁPIDA DE CONEXIONES -->
-  <div class="card">
-    <div class="card-title">
-      <span>🔌</span> Conexión al Handy / Radio VHF (Conectores P3 / CN1)
-    </div>
-    <div class="grid-2">
-      <div>
-        <ul class="info-list">
-          <li><strong>Audio RX (desde Auricular SPK del Radio):</strong> <code>IO35</code> (Conector P3, polarizado a 1.65V con cap 1uF).</li>
-          <li><strong>Audio TX (hacia Micrófono MIC del Radio):</strong> <code>IO21</code> o <code>IO27</code> (Sigma-Delta DAC con atenuador 10k/1k + 1uF) o <code>DAC2 IO26</code> en conector SPK.</li>
-          <li><strong>Control PTT:</strong> <code>IO22</code> (activa transistor NPN 2N2222 a masa en transmisión).</li>
-        </ul>
+    <!-- PASO 1: INSTALADOR PRINCIPAL -->
+    <div class="card">
+      <div class="card-title">
+        <span>⚡</span> Paso 1: Conecta tu placa por USB y elige la acción
       </div>
-      <div>
-        <ul class="info-list">
-          <li><strong>GPS NMEA Externo (Opcional):</strong> <code>RX2 = IO17</code>, <code>TX2 = IO16</code> a 9600 bps.</li>
-          <li><strong>Sensores Clima I2C (BME280/BMP280/AHT20):</strong> <code>SDA = IO16</code>, <code>SCL = IO17</code> en conector P3.</li>
-          <li><strong>Actualización por MicroSD:</strong> También puedes copiar <code>update.bin</code> a una tarjeta MicroSD FAT32 y se instala sola al arrancar.</li>
-        </ul>
+      <div style="font-size: 13px; color: var(--muted); margin-bottom: 8px;">
+        Compatible con placas <strong>ESP32-2432S024C</strong> (2.4" táctil) y <strong>ESP32-2432S028R</strong> (2.8"
+        pantalla amarilla).
+      </div>
+
+      <div class="btn-grid">
+        <!-- BOTÓN INSTALACIÓN COMPLETA -->
+        <button id="btnFull" class="flash-btn primary" onclick="startFlash('full')">
+          <span class="btn-tag green">Recomendado</span>
+          <span class="btn-name">Instalación Completa (Desde Cero)</span>
+          <span class="btn-desc">Graba el firmware completo v1.6.8 (Bootloader + Particiones + App en 0x0000). Ideal
+            para placas nuevas o recién compradas.</span>
+        </button>
+
+        <!-- BOTÓN ACTUALIZAR -->
+        <button id="btnUpdate" class="flash-btn" onclick="startFlash('update')">
+          <span class="btn-tag blue">Actualización Rápida</span>
+          <span class="btn-name">Solo Actualizar Firmware</span>
+          <span class="btn-desc">Actualiza la aplicación (Offset 0x10000) conservando tus configuraciones guardadas de
+            Indicativo, SSID, Clave WiFi y coordenadas.</span>
+        </button>
+      </div>
+
+      <!-- Opcional: Cargar .bin manual -->
+      <div class="custom-upload">
+        <span>O graba un archivo compilado local:</span>
+        <input type="file" id="localBinFile" accept=".bin">
+        <button id="btnCustom" class="cmd-btn" onclick="startFlash('custom')">Grabar Archivo Seleccionado</button>
+      </div>
+
+      <!-- Barra de progreso -->
+      <div class="progress-wrap">
+        <div id="progBar" class="progress-bar"></div>
+      </div>
+
+      <!-- Consola de salida -->
+      <div id="logBox" class="log-terminal">[Listo] Conecta tu placa ESP32 CYD por cable USB a la PC y haz clic en
+        alguno de los botones arriba.
+        Navegadores soportados: Google Chrome, Microsoft Edge, Brave u Opera (con WebSerial activo).</div>
+
+      <div class="tip-box">
+        <strong>TIP IMPORTANTE SI LA PANTALLA QUEDA BLANCA O CON COLORES INVERTIDOS:</strong>
+        Existen variantes de la placa CYD (controlador <code>ILI9341</code> y <code>ST7789</code>). Si al encender la
+        pantalla queda en blanco, <strong>mantén presionado el botón físico BOOT durante 2 segundos</strong> para
+        cambiar de controlador. Si la imagen se ve con los <strong>colores invertidos (negativo)</strong>, toca el botón
+        <strong><code>NORM / INV</code></strong> en <code>CONF 2/7</code>, envía <code>'i'</code> por el Monitor Serie o
+        actívalo desde el Portal Web OTA.
+      </div>
+
+      <!-- Botón alternativo ESP Web Tools estándar -->
+      <div class="standard-web-tools">
+        <span>También puedes usar el botón estándar oficial ESP Web Tools:</span>
+        <esp-web-install-button manifest="manifest.json"></esp-web-install-button>
       </div>
     </div>
+
+    <!-- PASO 2: MONITOR SERIE WEB EN VIVO -->
+    <div class="card">
+      <div class="card-title">
+        <span>📡</span> Monitor Serie USB en Vivo (115200 baudios)
+      </div>
+      <div style="font-size: 13px; color: var(--muted); margin-bottom: 8px;">
+        Permite ver en tiempo real los paquetes APRS que tu placa decodifica por audio, el estado del GPS, conexión
+        WiFi/IGate o enviar comandos de prueba desde el navegador:
+      </div>
+
+      <div class="action-row">
+        <button id="btnSerialConnect" class="cmd-btn" style="background: var(--accent); color:#000;"
+          onclick="toggleSerialMonitor()">Abrir Monitor Serie USB</button>
+        <button class="cmd-btn serial-act" onclick="sendSerialCmd('b')" disabled>Baliza RF ('b')</button>
+        <button class="cmd-btn serial-act" onclick="sendSerialCmd('l')" disabled>Test Loopback ('l')</button>
+        <button class="cmd-btn serial-act" onclick="sendSerialCmd('d')" disabled>Alternar Pantalla ST/ILI ('d')</button>
+        <button class="cmd-btn serial-act" onclick="sendSerialCmd('i')" disabled>Invertir Color ('i')</button>
+        <button class="cmd-btn serial-act" onclick="sendSerialCmd('s')" disabled>Ver Estado ('s')</button>
+        <button class="cmd-btn serial-act" onclick="clearSerialLog()" disabled>Limpiar</button>
+      </div>
+
+      <div id="serialBox" class="log-terminal" style="height: 180px; color: #a4e5ff;">[Monitor Serie Desconectado] Haz
+        clic en 'Abrir Monitor Serie USB' para conectar a 115200 baudios.</div>
+    </div>
+
+    <!-- GUÍA RÁPIDA DE CONEXIONES -->
+    <div class="card">
+      <div class="card-title">
+        <span>🔌</span> Conexión al Handy / Radio VHF (Conectores P3 / CN1)
+      </div>
+      <div class="grid-2">
+        <div>
+          <ul class="info-list">
+            <li><strong>Audio RX (desde Auricular SPK del Radio):</strong> <code>IO35</code> (Conector P3, polarizado a
+              1.65V con cap 1uF).</li>
+            <li><strong>Audio TX (hacia Micrófono MIC del Radio):</strong> <code>IO21</code> o <code>IO27</code>
+              (Sigma-Delta DAC con atenuador 10k/1k + 1uF) o <code>DAC2 IO26</code> en conector SPK.</li>
+            <li><strong>Control PTT:</strong> <code>IO22</code> (activa transistor NPN 2N2222 a masa en transmisión).
+            </li>
+          </ul>
+        </div>
+        <div>
+          <ul class="info-list">
+            <li><strong>GPS NMEA Externo (Opcional):</strong> <code>RX2 = IO17</code>, <code>TX2 = IO16</code> a 9600
+              bps.</li>
+            <li><strong>Sensores Clima I2C (BME280/BMP280/AHT20):</strong> <code>SDA = IO16</code>,
+              <code>SCL = IO17</code> en conector P3.</li>
+            <li><strong>Actualización por MicroSD:</strong> También puedes copiar <code>update.bin</code> a una tarjeta
+              MicroSD FAT32 y se instala sola al arrancar.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- COMPLEMENTO MICROTRACKER ESP32-C3 SUPERMINI -->
+    <div class="card" style="border-color: rgba(0, 188, 212, 0.45);">
+      <div class="card-title">
+        <span>🛰️</span> Complemento: MicroTracker ESP32-C3 SuperMini (BLE + GPS + SOS)
+      </div>
+      <div style="font-size: 13px; color: var(--muted); margin-bottom: 12px;">
+        Versión ultracompacta sin pantalla sobre <strong>ESP32-C3 SuperMini</strong> con GPS + SmartBeaconing™, portal
+        WiFi bajo demanda, botón SOS por hardware y consola de mensajes APRS por <strong>Bluetooth BLE</strong> desde el
+        celular.
+      </div>
+      <div class="action-row">
+        <a href="microtracker/" class="cmd-btn"
+          style="background: var(--accent); color: #000; text-decoration: none;">📱 Abrir Consola Móvil BLE (Web
+          Bluetooth)</a>
+        <a href="https://github.com/lu4hne/espcydaprs/tree/main/MicroTracker" target="_blank" rel="noopener"
+          class="cmd-btn" style="text-decoration: none;">📖 Ver Esquema de Conexiones y Firmware</a>
+      </div>
+    </div>
+
+    <footer>
+      Proyecto ESP32 CYD APRS Transceiver &bull; Desarrollado por <strong>LU4HNE</strong> &bull;
+      <a href="https://github.com/lu4hne/espcydaprs" target="_blank" rel="noopener">Ver Código en GitHub</a> &bull;
+      Firmware Versión <strong>v1.6.8</strong>
+    </footer>
   </div>
 
-  <!-- COMPLEMENTO MICROTRACKER ESP32-C3 SUPERMINI -->
-  <div class="card" style="border-color: rgba(0, 188, 212, 0.45);">
-    <div class="card-title">
-      <span>🛰️</span> Complemento: MicroTracker ESP32-C3 SuperMini (BLE + GPS + SOS)
-    </div>
-    <div style="font-size: 13px; color: var(--muted); margin-bottom: 12px;">
-      Versión ultracompacta sin pantalla sobre <strong>ESP32-C3 SuperMini</strong> con GPS + SmartBeaconing™, portal WiFi bajo demanda, botón SOS por hardware y consola de mensajes APRS por <strong>Bluetooth BLE</strong> desde el celular.
-    </div>
-    <div class="action-row">
-      <a href="microtracker/" class="cmd-btn" style="background: var(--accent); color: #000; text-decoration: none;">📱 Abrir Consola Móvil BLE (Web Bluetooth)</a>
-      <a href="https://github.com/lu4hne/espcydaprs/tree/main/MicroTracker" target="_blank" rel="noopener" class="cmd-btn" style="text-decoration: none;">📖 Ver Esquema de Conexiones y Firmware</a>
-    </div>
-  </div>
+  <!-- SCRIPT DE GRABACIÓN WEBSERIAL USANDO ESPTOOL-JS BUNDLE -->
+  <script type="module">
+    import { ESPLoader, Transport } from "https://unpkg.com/esptool-js@0.4.5/bundle.js";
 
-  <footer>
-    Proyecto ESP32 CYD APRS Transceiver &bull; Desarrollado por <strong>LU4HNE</strong> &bull;
-    <a href="https://github.com/lu4hne/espcydaprs" target="_blank" rel="noopener">Ver Código en GitHub</a> &bull;
-    Firmware Versión <strong>v1.6.7</strong>
-  </footer>
-</div>
+    const logBox = document.getElementById("logBox");
+    const progBar = document.getElementById("progBar");
+    const btnFull = document.getElementById("btnFull");
+    const btnUpdate = document.getElementById("btnUpdate");
+    const btnCustom = document.getElementById("btnCustom");
 
-<!-- SCRIPT DE GRABACIÓN WEBSERIAL USANDO ESPTOOL-JS BUNDLE -->
-<script type="module">
-  import { ESPLoader, Transport } from "https://unpkg.com/esptool-js@0.4.5/bundle.js";
-
-  const logBox = document.getElementById("logBox");
-  const progBar = document.getElementById("progBar");
-  const btnFull = document.getElementById("btnFull");
-  const btnUpdate = document.getElementById("btnUpdate");
-  const btnCustom = document.getElementById("btnCustom");
-
-  function logLine(msg) {
-    const time = new Date().toLocaleTimeString();
-    logBox.textContent += `[${time}] ${msg}\n`;
-    logBox.scrollTop = logBox.scrollHeight;
-  }
-
-  function setButtonsDisabled(state) {
-    btnFull.disabled = state;
-    btnUpdate.disabled = state;
-    btnCustom.disabled = state;
-  }
-
-  function arrayBufferToBinaryString(buffer) {
-    const bytes = new Uint8Array(buffer);
-    let binary = "";
-    const chunk = 0x8000;
-    for (let i = 0; i < bytes.length; i += chunk) {
-      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
-    }
-    return binary;
-  }
-
-  window.startFlash = async function(mode) {
-    if (!("serial" in navigator)) {
-      alert("Tu navegador no soporta WebSerial.\nPor favor abre esta página con Google Chrome, Microsoft Edge, Brave u Opera desde una PC con Windows, Mac o Linux.");
-      return;
+    function logLine(msg) {
+      const time = new Date().toLocaleTimeString();
+      logBox.textContent += `[${time}] ${msg}\n`;
+      logBox.scrollTop = logBox.scrollHeight;
     }
 
-    // Desconectar monitor serie si estaba activo
-    if (serialPort) {
-      await closeSerialPort();
+    function setButtonsDisabled(state) {
+      btnFull.disabled = state;
+      btnUpdate.disabled = state;
+      btnCustom.disabled = state;
     }
 
-    let binUrl = "";
-    let offset = 0;
-    let fileName = "";
-    let arrayBuf = null;
+    function arrayBufferToBinaryString(buffer) {
+      const bytes = new Uint8Array(buffer);
+      let binary = "";
+      const chunk = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+      }
+      return binary;
+    }
 
-    if (mode === "full") {
-      binUrl = "firmware/ESP32_CYD_APRS_FULL.bin";
-      offset = 0x0000;
-      fileName = "ESP32_CYD_APRS_FULL.bin (v1.6.7 Completo)";
-    } else if (mode === "update") {
-      binUrl = "firmware/update.bin";
-      offset = 0x10000;
-      fileName = "update.bin (v1.6.7 App Offset 0x10000)";
-    } else if (mode === "custom") {
-      const fileInput = document.getElementById("localBinFile");
-      if (!fileInput.files || fileInput.files.length === 0) {
-        alert("Por favor selecciona primero un archivo .bin de tu disco.");
+    window.startFlash = async function (mode) {
+      if (!("serial" in navigator)) {
+        alert("Tu navegador no soporta WebSerial.\nPor favor abre esta página con Google Chrome, Microsoft Edge, Brave u Opera desde una PC con Windows, Mac o Linux.");
         return;
       }
-      const f = fileInput.files[0];
-      fileName = f.name;
-      offset = 0x10000; // Por defecto offset de app
-      if (confirm(`¿Grabar ${f.name} en Offset 0x10000 (Actualización)?\nPulsa Cancelar para grabar en Offset 0x0000 (Imagen Completa).`)) {
-        offset = 0x10000;
-      } else {
+
+      // Desconectar monitor serie si estaba activo
+      if (serialPort) {
+        await closeSerialPort();
+      }
+
+      let binUrl = "";
+      let offset = 0;
+      let fileName = "";
+      let arrayBuf = null;
+
+      if (mode === "full") {
+        binUrl = "firmware/ESP32_CYD_APRS_FULL.bin";
         offset = 0x0000;
+        fileName = "ESP32_CYD_APRS_FULL.bin (v1.6.8 Completo)";
+      } else if (mode === "update") {
+        binUrl = "firmware/update.bin";
+        offset = 0x10000;
+        fileName = "update.bin (v1.6.8 App Offset 0x10000)";
+      } else if (mode === "custom") {
+        const fileInput = document.getElementById("localBinFile");
+        if (!fileInput.files || fileInput.files.length === 0) {
+          alert("Por favor selecciona primero un archivo .bin de tu disco.");
+          return;
+        }
+        const f = fileInput.files[0];
+        fileName = f.name;
+        offset = 0x10000; // Por defecto offset de app
+        if (confirm(`¿Grabar ${f.name} en Offset 0x10000 (Actualización)?\nPulsa Cancelar para grabar en Offset 0x0000 (Imagen Completa).`)) {
+          offset = 0x10000;
+        } else {
+          offset = 0x0000;
+        }
+        arrayBuf = await f.arrayBuffer();
       }
-      arrayBuf = await f.arrayBuffer();
+
+      setButtonsDisabled(true);
+      progBar.style.width = "4%";
+
+      try {
+        if (!arrayBuf) {
+          logLine(`Descargando ${fileName} desde el servidor...`);
+          const resp = await fetch(binUrl);
+          if (!resp.ok) {
+            throw new Error(`Error HTTP ${resp.status} al descargar el binario (${binUrl})`);
+          }
+          arrayBuf = await resp.arrayBuffer();
+        }
+
+        logLine(`Binario cargado en memoria (${Math.round(arrayBuf.byteLength / 1024)} KB).`);
+        logLine("Solicitando selección de Puerto USB...");
+
+        const device = await navigator.serial.requestPort({});
+        const transport = new Transport(device, true);
+
+        const espLoaderTerminal = {
+          clean() { logBox.textContent = ""; },
+          writeLine(data) { logLine(data); },
+          write(data) {
+            logBox.textContent += data;
+            logBox.scrollTop = logBox.scrollHeight;
+          }
+        };
+
+        const esploader = new ESPLoader({
+          transport,
+          baudrate: 460800,
+          terminal: espLoaderTerminal
+        });
+
+        logLine("Conectando con el ESP32 (Si demora, mantén presionado el botón BOOT de la placa)...");
+        const chip = await esploader.main();
+        logLine(`¡Conectado exitosamente con ${chip}!`);
+
+        const binStr = arrayBufferToBinaryString(arrayBuf);
+        logLine(`Grabando en memoria Flash (Offset 0x${offset.toString(16)})...`);
+
+        await esploader.writeFlash({
+          fileArray: [{ data: binStr, address: offset }],
+          flashSize: "4MB",
+          flashMode: "dio",
+          flashFreq: "40m",
+          eraseAll: false,
+          compress: true,
+          reportProgress: (fileIndex, written, total) => {
+            const pct = Math.round((written / total) * 100);
+            progBar.style.width = pct + "%";
+          }
+        });
+
+        progBar.style.width = "100%";
+        logLine("==========================================================");
+        logLine("¡GRABACIÓN COMPLETADA CON ÉXITO! Reiniciando placa ESP32...");
+        logLine("==========================================================");
+
+        await transport.setDTR(false);
+        await transport.setRTS(true);
+        await new Promise(r => setTimeout(r, 150));
+        await transport.setRTS(false);
+        await transport.disconnect();
+
+        alert("¡Firmware grabado con éxito en tu placa ESP32 CYD!\n\nNota: Si tu pantalla queda en blanco, mantén presionado el botón BOOT por 2 segundos.");
+      } catch (err) {
+        logLine(`ERROR: ${err.message || err}`);
+        alert(`Error durante la grabación:\n${err.message || err}`);
+      } finally {
+        setButtonsDisabled(false);
+      }
+    };
+
+    // =========================================================================
+    // MONITOR SERIE WEB
+    // =========================================================================
+    let serialPort = null;
+    let serialReader = null;
+    let serialWriter = null;
+    const serialBox = document.getElementById("serialBox");
+    const btnSerialConnect = document.getElementById("btnSerialConnect");
+    const serialActs = document.querySelectorAll(".serial-act");
+
+    function setSerialButtons(enabled) {
+      serialActs.forEach(b => b.disabled = !enabled);
+      btnSerialConnect.textContent = enabled ? "Desconectar Monitor Serie" : "Abrir Monitor Serie USB";
+      btnSerialConnect.style.background = enabled ? "var(--red)" : "var(--accent)";
+      btnSerialConnect.style.color = enabled ? "#ffffff" : "#000000";
     }
 
-    setButtonsDisabled(true);
-    progBar.style.width = "4%";
+    async function closeSerialPort() {
+      if (serialReader) {
+        try { await serialReader.cancel(); } catch (e) { }
+        serialReader = null;
+      }
+      if (serialWriter) {
+        try { serialWriter.releaseLock(); } catch (e) { }
+        serialWriter = null;
+      }
+      if (serialPort) {
+        try { await serialPort.close(); } catch (e) { }
+        serialPort = null;
+      }
+      setSerialButtons(false);
+    }
 
-    try {
-      if (!arrayBuf) {
-        logLine(`Descargando ${fileName} desde el servidor...`);
-        const resp = await fetch(binUrl);
-        if (!resp.ok) {
-          throw new Error(`Error HTTP ${resp.status} al descargar el binario (${binUrl})`);
-        }
-        arrayBuf = await resp.arrayBuffer();
+    window.toggleSerialMonitor = async function () {
+      if (serialPort) {
+        await closeSerialPort();
+        serialBox.textContent += "\n[Monitor Serie Desconectado]\n";
+        return;
       }
 
-      logLine(`Binario cargado en memoria (${Math.round(arrayBuf.byteLength / 1024)} KB).`);
-      logLine("Solicitando selección de Puerto USB...");
-
-      const device = await navigator.serial.requestPort({});
-      const transport = new Transport(device, true);
-
-      const espLoaderTerminal = {
-        clean() { logBox.textContent = ""; },
-        writeLine(data) { logLine(data); },
-        write(data) {
-          logBox.textContent += data;
-          logBox.scrollTop = logBox.scrollHeight;
-        }
-      };
-
-      const esploader = new ESPLoader({
-        transport,
-        baudrate: 460800,
-        terminal: espLoaderTerminal
-      });
-
-      logLine("Conectando con el ESP32 (Si demora, mantén presionado el botón BOOT de la placa)...");
-      const chip = await esploader.main();
-      logLine(`¡Conectado exitosamente con ${chip}!`);
-
-      const binStr = arrayBufferToBinaryString(arrayBuf);
-      logLine(`Grabando en memoria Flash (Offset 0x${offset.toString(16)})...`);
-
-      await esploader.writeFlash({
-        fileArray: [{ data: binStr, address: offset }],
-        flashSize: "4MB",
-        flashMode: "dio",
-        flashFreq: "40m",
-        eraseAll: false,
-        compress: true,
-        reportProgress: (fileIndex, written, total) => {
-          const pct = Math.round((written / total) * 100);
-          progBar.style.width = pct + "%";
-        }
-      });
-
-      progBar.style.width = "100%";
-      logLine("==========================================================");
-      logLine("¡GRABACIÓN COMPLETADA CON ÉXITO! Reiniciando placa ESP32...");
-      logLine("==========================================================");
-
-      await transport.setDTR(false);
-      await transport.setRTS(true);
-      await new Promise(r => setTimeout(r, 150));
-      await transport.setRTS(false);
-      await transport.disconnect();
-
-      alert("¡Firmware grabado con éxito en tu placa ESP32 CYD!\n\nNota: Si tu pantalla queda en blanco, mantén presionado el botón BOOT por 2 segundos.");
-    } catch (err) {
-      logLine(`ERROR: ${err.message || err}`);
-      alert(`Error durante la grabación:\n${err.message || err}`);
-    } finally {
-      setButtonsDisabled(false);
-    }
-  };
-
-  // =========================================================================
-  // MONITOR SERIE WEB
-  // =========================================================================
-  let serialPort = null;
-  let serialReader = null;
-  let serialWriter = null;
-  const serialBox = document.getElementById("serialBox");
-  const btnSerialConnect = document.getElementById("btnSerialConnect");
-  const serialActs = document.querySelectorAll(".serial-act");
-
-  function setSerialButtons(enabled) {
-    serialActs.forEach(b => b.disabled = !enabled);
-    btnSerialConnect.textContent = enabled ? "Desconectar Monitor Serie" : "Abrir Monitor Serie USB";
-    btnSerialConnect.style.background = enabled ? "var(--red)" : "var(--accent)";
-    btnSerialConnect.style.color = enabled ? "#ffffff" : "#000000";
-  }
-
-  async function closeSerialPort() {
-    if (serialReader) {
-      try { await serialReader.cancel(); } catch (e) {}
-      serialReader = null;
-    }
-    if (serialWriter) {
-      try { serialWriter.releaseLock(); } catch (e) {}
-      serialWriter = null;
-    }
-    if (serialPort) {
-      try { await serialPort.close(); } catch (e) {}
-      serialPort = null;
-    }
-    setSerialButtons(false);
-  }
-
-  window.toggleSerialMonitor = async function() {
-    if (serialPort) {
-      await closeSerialPort();
-      serialBox.textContent += "\n[Monitor Serie Desconectado]\n";
-      return;
-    }
-
-    if (!("serial" in navigator)) {
-      alert("Tu navegador no soporta WebSerial. Usa Google Chrome o Edge.");
-      return;
-    }
-
-    try {
-      serialPort = await navigator.serial.requestPort({});
-      await serialPort.open({ baudRate: 115200 });
-
-      setSerialButtons(true);
-      serialBox.textContent = `[Conectado a 115200 baudios]\n`;
-
-      const textDecoder = new TextDecoderStream();
-      const readableStreamClosed = serialPort.readable.pipeTo(textDecoder.writable);
-      serialReader = textDecoder.readable.getReader();
-
-      const textEncoder = new TextEncoderStream();
-      const writableStreamClosed = textEncoder.readable.pipeTo(serialPort.writable);
-      serialWriter = textEncoder.writable.getWriter();
-
-      readSerialLoop();
-    } catch (err) {
-      alert("Error al abrir puerto serie: " + err.message);
-      await closeSerialPort();
-    }
-  };
-
-  async function readSerialLoop() {
-    try {
-      while (serialReader) {
-        const { value, done } = await serialReader.read();
-        if (done) break;
-        if (value) {
-          serialBox.textContent += value;
-          serialBox.scrollTop = serialBox.scrollHeight;
-        }
+      if (!("serial" in navigator)) {
+        alert("Tu navegador no soporta WebSerial. Usa Google Chrome o Edge.");
+        return;
       }
-    } catch (err) {
-      // Puerto cerrado
-    }
-  }
 
-  window.sendSerialCmd = async function(cmdChar) {
-    if (!serialWriter) return;
-    try {
-      await serialWriter.write(cmdChar);
-    } catch (err) {
-      console.error(err);
-    }
-  };
+      try {
+        serialPort = await navigator.serial.requestPort({});
+        await serialPort.open({ baudRate: 115200 });
 
-  window.clearSerialLog = function() {
-    serialBox.textContent = "";
-  };
-</script>
+        setSerialButtons(true);
+        serialBox.textContent = `[Conectado a 115200 baudios]\n`;
+
+        const textDecoder = new TextDecoderStream();
+        const readableStreamClosed = serialPort.readable.pipeTo(textDecoder.writable);
+        serialReader = textDecoder.readable.getReader();
+
+        const textEncoder = new TextEncoderStream();
+        const writableStreamClosed = textEncoder.readable.pipeTo(serialPort.writable);
+        serialWriter = textEncoder.writable.getWriter();
+
+        readSerialLoop();
+      } catch (err) {
+        alert("Error al abrir puerto serie: " + err.message);
+        await closeSerialPort();
+      }
+    };
+
+    async function readSerialLoop() {
+      try {
+        while (serialReader) {
+          const { value, done } = await serialReader.read();
+          if (done) break;
+          if (value) {
+            serialBox.textContent += value;
+            serialBox.scrollTop = serialBox.scrollHeight;
+          }
+        }
+      } catch (err) {
+        // Puerto cerrado
+      }
+    }
+
+    window.sendSerialCmd = async function (cmdChar) {
+      if (!serialWriter) return;
+      try {
+        await serialWriter.write(cmdChar);
+      } catch (err) {
+        console.error(err);
+      }
+    };
+
+    window.clearSerialLog = function () {
+      serialBox.textContent = "";
+    };
+  </script>
 
 </body>
+
 </html>

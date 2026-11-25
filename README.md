@@ -1,6 +1,6 @@
-# ESP32 CYD (`ESP32-2432S024C` / `ESP32-2432S028R`) — Transceptor APRS 1200 bps / Tracker / Estación Fija + IGate + Estación Meteorológica WX (`v1.6.7`)
+# ESP32 CYD (`ESP32-2432S024C` / `ESP32-2432S028R`) — Transceptor APRS 1200 bps / Tracker / Estación Fija + IGate + Estación Meteorológica WX (`v1.6.8`)
 
-Aplicación completa de **codificación y decodificación APRS a 1200 baudios (AFSK Bell 202 / AX.25)** con **IGate APRS-IS bidireccional por WiFi**, **telemetría meteorológica (`BMP280 / BME280 / AHT20 / DHT22 / DHT11`)** y **actualización de firmware por MicroSD y Web OTA**, diseñada para la familia de placas **ESP32 Cheap Yellow Display (CYD)** tanto en sus variantes con controlador **`ILI9341`** como **`ST7789` (1-USB)** y paneles táctiles **`CST820` (I2C)** o **`XPT2046` (SPI dedicado o compartido)**.
+Aplicación completa de **codificación y decodificación APRS a 1200 baudios (AFSK Bell 202 / AX.25)** con **IGate APRS-IS bidireccional por WiFi**, **telemetría meteorológica I2C (`BME280 / BMP280`)** y **actualización de firmware por MicroSD y Web OTA**, diseñada para la familia de placas **ESP32 Cheap Yellow Display (CYD)** tanto en sus variantes con controlador **`ILI9341`** como **`ST7789` (1-USB)** y paneles táctiles **`CST820` (I2C)** o **`XPT2046` (SPI dedicado o compartido)**.
 
 Permite conectar directamente un handy o base **Yaesu** o **Baofeng** (en VHF `144.390 MHz` / `144.930 MHz` o UHF) para operar tanto en terreno como **Tracker autónomo con GPS** como en el shack como **Estación Fija + IGate (RF $\leftrightarrow$ APRS-IS)**, **Estación Meteorológica APRS WX** y **Digipeater Fill-in `WIDE1-1`**.
 
@@ -40,9 +40,10 @@ Permite conectar directamente un handy o base **Yaesu** o **Baofeng** (en VHF `1
     * **Intervalo de Baliza SOS:** `120 s` por defecto (opciones: `60 s`, `120 s`, `180 s`).
     * **Mensaje Directo APRS SOS:** Opcional (`SI` / `NO`) con indicativo destinatario configurable (ej. para avisar directamente a tu estación base o grupo de rescate).
     * **Alerta Sonora Parlante (`GPIO 26`):** Opcional (`SI` / `NO`), emite una sirena de 2 tonos cada 15 segundos por el altavoz integrado (silenciosa por defecto para no agotar la batería).
-* **Sensores Meteorológicos en Configuración (`CONF 5/7: SENSORES CLIMA` — `BMP280 / BME280 / AHT20 / DHT22 / DHT11`):**
-  * Detección automática e instantánea de sensores **I2C (`BMP280`, `BME280`, `AHT10/AHT20`)** y **1-Wire (`DHT22`, `DHT11`)** sin librerías externas pesadas.
-  * **Omisión Automática si no hay Sensor Conectado:** Si el sensor está desactivado o físicamente desconectado, **no se incluye ningún dato meteorológico en las balizas APRS** (la baliza sale limpia con tu comentario habitual).
+* **Sensor Meteorológico I2C (`CONF 5/7: SENSOR CLIMA` — `BME280 / BMP280`):**
+  * Soporte dedicado y probado por **I2C por hardware** para **`BME280`** (Temperatura + Humedad + Presión) y **`BMP280`** (Temperatura + Presión) en `0x76` / `0x77`, sin interferir con la prioridad de recepción RF.
+  * **Exclusión mutua estricta con GPS:** Por compartir los pines `IO16/IO17` del conector `P3`, el firmware impide activar simultáneamente **GPS externo (`Pos: GPS`)** y **Sensor Clima (`BME280/BMP280`)** tanto en la pantalla táctil como en el Portal Web, mostrando un aviso claro para evitar confusiones.
+  * **Omisión Automática si no hay Sensor Conectado:** Si el sensor está en `APAGADO` o físicamente desconectado, **no se incluye ningún dato meteorológico en las balizas APRS**.
   * **3 Modos de Inclusión en Baliza APRS:**
     1. **`COMENTARIO`:** Añade al final de tu comentario las lecturas disponibles (ej: `24.5C 48% 1013hPa` en `BME280` o `24.5C 1013hPa` en `BMP280`).
     2. **`WX OFICIAL (/_)`:** Formatea la baliza con el estándar meteorológico APRS (`_.../...g...t076h48b10132`) para que `aprs.fi` grafique las curvas de temperatura, humedad y presión atmosférica.
@@ -153,36 +154,30 @@ Sí: el parámetro **`Dly: xxx ms` (`TX Delay`)** define el tiempo de **preámbu
 
 ---
 
-## Conexión de Sensores Meteorológicos (`Pestaña SENS`)
+## Conexión del Sensor Meteorológico I2C (`CONF 5/7` — `BME280 / BMP280`)
 
-El firmware incluye soporte nativo para sensores de **Temperatura, Humedad y Presión Barométrica** desde la pestaña **`SENS`**:
+El firmware soporta de forma exclusiva y estable el sensor **I2C por hardware `BME280` / `BMP280`** (sin interrupciones de software que afecten al módem AFSK):
 
-### Sensores Soportados
+| Chip Detectado | Dirección I2C | Magnitudes Medidas | Nota Técnica |
+| :--- | :---: | :--- | :--- |
+| **`BME280`** *(Recomendado)* | `0x76` / `0x77` | Temperatura (`°C`) + Humedad (`%`) + Presión (`hPa`) | Estación meteorológica APRS WX completa en un solo módulo de 4 pines. |
+| **`BMP280`** | `0x76` / `0x77` | Temperatura (`°C`) + Presión (`hPa`) | Mismo módulo de 4 pines (omite humedad). |
 
-| Selección en `SENS` | Sensores Compatibles | Magnitudes Medidas | Nota Técnica |
-| :--- | :--- | :--- | :--- |
-| **`AUTO I2C`** *(Recomendado)* | **`BME280`**, **`BMP280`**, **`AHT10 / AHT20`** | Temp + Humedad + Presión *(según chip)* | Escanea automáticamente el bus I2C en `0x76`, `0x77` y `0x38`. Si conectas un `BMP280` y un `AHT20` en paralelo sobre los mismos 4 cables, **combina ambos automáticamente** (Temp + Humedad del `AHT20` + Presión del `BMP280`). |
-| **`BMP280 I2C`** | **`BMP280`** (`0x76` / `0x77`) | Temperatura (`°C`) + Presión (`hPa`) | El `BMP280` mide temperatura y presión barométrica; si deseas medir también humedad relativa, usa un **`BME280`** (mismo formato de 4 pines) o agrégale un **`AHT20`** en paralelo. |
-| **`BME280 I2C`** | **`BME280`** (`0x76` / `0x77`) | Temperatura (`°C`) + Humedad (`%`) + Presión (`hPa`) | Estación meteorológica completa en un solo módulo I2C de 4 pines. |
-| **`AHT10/20 I2C`** | **`AHT10`**, **`AHT20`**, **`AHT21`** (`0x38`) | Temperatura (`°C`) + Humedad (`%`) | Sensor digital I2C de alta precisión de temperatura y humedad. |
-| **`DHT22 (1-WIRE)`** | **`DHT22 / AM2302`** | Temperatura (`°C`) + Humedad (`%`) | Sensor de 1 hilo conectado al segundo pin del perfil elegido (`IO17` o `IO22`). |
-| **`DHT11 (1-WIRE)`** | **`DHT11`** | Temperatura (`°C`) + Humedad (`%`) | Sensor básico de 1 hilo conectado a `IO17` o `IO22`. |
+> **Importante — Exclusión mutua con GPS:** El sensor I2C y el GPS UART2 comparten el conector `P3` (`IO16/IO17`). Para usar el sensor `BME280/BMP280`, la estación debe estar en **`Pos: FIJA`** (`CONF 1/7`). Si activas `Pos: GPS` o cambias a `MODO TRACKER`, el sensor se bloquea/apaga automáticamente.
 
-### Cableado en el Conector Blanco `P3` (`Pines: P3 SDA=16 SCL=17`)
+### Cableado en el Conector Blanco `P3` (`I2C: SDA=16 SCL=17`)
 
-En la placa `ST7789` (en modo `Pos: FIJA`), el perfil por defecto es **`Pines: P3 SDA=16 SCL=17`**:
-
-| Pin del Sensor (`BMP280 / BME280 / AHT20`) | Pin en la Placa CYD (`Conector P3 / CN1`) |
+| Pin del Sensor (`BME280 / BMP280`) | Pin en la Placa CYD (`Conector P3`) |
 | :---: | :--- |
 | **`VCC` / `VIN`** | **`3.3V`** |
 | **`GND`** | **`GND`** |
 | **`SDA`** | **`IO16`** |
-| **`SCL`** *(o `DATA` en `DHT22/11`)* | **`IO17`** |
+| **`SCL`** | **`IO17`** |
 
-*(También puedes seleccionar en `SENS` los perfiles alternativos `CN1 SDA=21 SCL=22` o `CN1 SDA=27 SCL=22` según los pines libres de tu placa).*
+*(También puedes seleccionar en `CONF 5/7` los perfiles alternativos `SDA=21 SCL=22` o `SDA=27 SCL=22` según los pines libres de tu placa).*
 
 ### ¿Qué ocurre si el sensor no está conectado?
-* Si seleccionas `Tipo: DESACTIVADO` o si el sensor **no está físicamente conectado** (estado `NO DETECTADO` en la pestaña `SENS`), **las balizas APRS no incluyen ningún dato meteorológico** y se transmiten únicamente con tu posición y comentario normal.
+* Si dejas `Sensor: APAGADO` (valor por defecto) o el sensor **no está físicamente conectado**, **las balizas APRS no incluyen ningún dato meteorológico** y se transmiten únicamente con tu posición y comentario normal.
 
 ---
 
@@ -259,7 +254,7 @@ La barra inferior mantiene **5 botones amplios dedicados a la operación de radi
 2. **`MONIT` (Monitor de Tráfico AX.25 / IGate + Diagnóstico DSP Opcional):**
    * Lista en tiempo real de paquetes decodificados con distancia (`km`), rumbo cardinal y etiqueta verde **`[IGATE]`** cuando el paquete fue inyectado o recibido desde **APRS-IS**.
    * **Botón opcional `[DIAG]` (esquina superior derecha):** Apagado por defecto (sin impacto en rendimiento). Al activarlo reinicia los contadores y muestra en vivo las métricas del demodulador DSP sobre señales reales (`DC` de polarización ADC, porcentaje Mark `M%`, banderas `0x7E`, errores `CRC`, tramas abortadas y detección de `CLIPPING ADC` o ausencia de banderas).
-   * **Arquitectura de Recepción Prioritaria RF (`v1.6.7`):** La tarea dedicada `AFSK_RX` corre en **Core 1 con prioridad máxima (`10`)** disparada por el **Timer de Hardware 3 (`104 µs` / `9600 Hz`)**, con demodulador DSP 100% entero y cola de `16` tramas, completamente aislada del stack WiFi/TCP-IP (Core 0) y sin pausas al conectar WiFi o abrir el Portal OTA. Incluye timeouts I2C (`50 ms`) en `Wire`/`Wire1` y sensor meteorológico en `APAGADO` por defecto.
+   * **Arquitectura de Recepción Prioritaria RF (`v1.6.8`):** La tarea dedicada `AFSK_RX` corre en **Core 1 con prioridad máxima (`10`)** disparada por el **Timer de Hardware 3 (`104 µs` / `9600 Hz`)**, con demodulador DSP 100% entero y cola de `16` tramas, completamente aislada del stack WiFi/TCP-IP (Core 0) y sin pausas al conectar WiFi o abrir el Portal OTA. Incluye timeouts I2C (`50 ms`) en `Wire`/`Wire1` y sensor meteorológico en `APAGADO` por defecto.
 3. **`MSJS` (Mensajes APRS Bidireccionales por RF y APRS-IS):**
    * Redacta mensajes con el teclado táctil QWERTY, con confirmación automática **`ACK`** y reintentos.
    * **Respuesta con un toque:** Toca cualquier mensaje recibido en la lista para abrir directamente la ventana de respuesta hacia ese corresponsal.
@@ -274,14 +269,14 @@ La barra inferior mantiene **5 botones amplios dedicados a la operación de radi
      * **`[ESCANEAR SD]` / `[INSTALAR SD]`:** Busca e instala archivos `.bin` desde la tarjeta MicroSD con barra de progreso en pantalla.
      * **`[OTA URL]`:** Descarga e instala actualizaciones remotas por HTTP/HTTPS.
      * **`[PORTAL WEB / AP WIFI OTA]`:** Inicia el servidor web de configuración (incluyendo inversión de color TFT) y actualización OTA en `http://<IP>` (o crea el punto de acceso WiFi `CYD-APRS-<INDICATIVO>` en `http://192.168.4.1`).
-   * **Página 5 (`5/7: SENSORES CLIMA`):**
+   * **Página 5 (`5/7: SENSOR CLIMA I2C`):**
      * Estado en vivo de **Temperatura (`°C`)**, **Humedad (`%`)** y **Presión (`hPa`)**.
-     * Selector de **`Tipo`** de sensor (`AUTO I2C`, `BMP/BME280`, `AHT10/20`, `DHT22`, `DHT11`, `DESACTIVADO`), **`Pines`** (`P3 SDA=16 SCL=17`, `CN1 21/22`, `CN1 27/22`), modo de envío en **`Baliza`** (`COMENTARIO`, `WX OFICIAL /_`, `NO INFORMAR`), calibración de **`Offset Temp`** (`-0.5°C` / `+0.5°C`) y botón **`[DETECTAR]`**.
-     * Si el sensor no está conectado, las balizas APRS omiten automáticamente cualquier dato meteorológico.
+     * Selector de **`Sensor`** (`APAGADO` / `BME/BMP280` por I2C hardware), **`Pines`** (`SDA=16 SCL=17`, `21/22`, `27/22`), modo de envío en **`Baliza`** (`COMENTARIO`, `WX OFICIAL /_`, `NO INFORMAR`), calibración de **`Offset Temp`** (`-0.5°C` / `+0.5°C`) y botón **`[DETECTAR]`**.
+     * **Exclusión mutua con GPS:** Solo puede activarse con **`Pos: FIJA`**; si el GPS está activo, se bloquea con aviso en pantalla. Si el sensor no está conectado, las balizas APRS omiten automáticamente cualquier dato meteorológico.
    * **Página 6 (`6/7: EMERGENCIA SOS`):**
      * Intervalo de baliza SOS (`60s` / `120s` / `180s`), activación de mensaje directo de auxilio, destinatario (`CALLSIGN`) y alerta sonora por parlante.
    * **Página 7 (`7/7: CREDITOS Y VERSION` — Siempre la última página / About):**
-     * Muestra créditos del proyecto (`LU4HNE`), versión instalada (`v1.6.7`), hardware activo (`Driver TFT` con indicador `(Inv)`, `Touch`, `Pin Audio TX`, `IP`, `Passcode` y memoria RAM libre). Tocar esta tarjeta alterna rápidamente la inversión de color de pantalla.
+     * Muestra créditos del proyecto (`LU4HNE`), versión instalada (`v1.6.8`), hardware activo (`Driver TFT` con indicador `(Inv)`, `Touch`, `Pin Audio TX`, `IP`, `Passcode` y memoria RAM libre). Tocar esta tarjeta alterna rápidamente la inversión de color de pantalla.
      * Incluye selectores de brillo del **LED Azul (`LED: TENUE / MEDIO / OFF`)**, brillo de pantalla **TFT (`TFT: 100% / 65% / 35% / 15%`)**, **`[GUARDAR]`** y **`[REINICIAR]`**.
 
 ---

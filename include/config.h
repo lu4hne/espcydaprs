@@ -2,7 +2,7 @@
 
 #include <Arduino.h>
 
-#define FIRMWARE_VERSION    "1.6.7"
+#define FIRMWARE_VERSION    "1.6.8"
 
 // ============================================================================
 // PLACA: ESP32 CYD (Soporte Dual: Modelo ST7789 1-USB y Modelo ILI9341)
@@ -104,18 +104,14 @@ enum PositionMode : uint8_t {
 };
 
 enum SensorModel : uint8_t {
-    SENSOR_AUTO_I2C   = 0, // Auto-detecta BMP280/BME280 (0x76/0x77) o AHT20 (0x38)
-    SENSOR_BMP_BME280 = 1, // BMP280 (Temp+Presión) o BME280 (Temp+Hum+Presión) por I2C
-    SENSOR_AHT20      = 2, // AHT10 / AHT20 (Temp+Hum) por I2C
-    SENSOR_DHT22      = 3, // DHT22 / AM2302 (Temp+Hum) digital 1-Wire
-    SENSOR_DHT11      = 4, // DHT11 (Temp+Hum) digital 1-Wire
-    SENSOR_DISABLED   = 5  // Sensores desactivados
+    SENSOR_BMP_BME280 = 1, // Único sensor soportado: BME280 (T+H+P) / BMP280 (T+P) por I2C hardware
+    SENSOR_DISABLED   = 5  // Sensores desactivados (valor mantenido en 5 por compatibilidad NVS)
 };
 
 enum SensorPinProfile : uint8_t {
-    SENSOR_PINS_16_17 = 0, // Conector P3 (ST7789): SDA=IO16, SCL=IO17 (o DATA=IO17 en DHT)
-    SENSOR_PINS_21_22 = 1, // Conector P3/CN1: SDA=IO21, SCL=IO22 (o DATA=IO21 en DHT)
-    SENSOR_PINS_27_22 = 2  // Conector CN1 (ILI9341): SDA=IO27, SCL=IO22 (o DATA=IO27 en DHT)
+    SENSOR_PINS_16_17 = 0, // Conector P3 (ST7789): SDA=IO16, SCL=IO17 (incompatible con GPS UART2)
+    SENSOR_PINS_21_22 = 1, // Conector P3/CN1: SDA=IO21, SCL=IO22
+    SENSOR_PINS_27_22 = 2  // Conector CN1 (ILI9341): SDA=IO27, SCL=IO22
 };
 
 enum SensorBeaconMode : uint8_t {

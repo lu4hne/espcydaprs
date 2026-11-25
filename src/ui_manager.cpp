@@ -1166,6 +1166,9 @@ void UiManager::drawConfig(bool fullRedraw) {
             }
             _tft.setTextColor(COL_YELLOW, COL_CARD);
             _tft.drawString(valLine, 12, 73, 2);
+        } else if (cfg.posMode == POS_MODE_GPS) {
+            _tft.setTextColor(COL_ORANGE, COL_CARD);
+            _tft.drawString("Bloqueado: GPS activo (Cambia Pos a FIJA)", 12, 73, 2);
         } else {
             _tft.setTextColor(COL_MUTED, COL_CARD);
             _tft.drawString("Sin sensor conectado (No informa en balizas)", 12, 73, 2);
@@ -1787,6 +1790,11 @@ void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
         // Fila 3 (y=130..164): Posición (FIJA/GPS) / Latitud / Longitud
         if (ty >= 130 && ty <= 164) {
             if (tx < 90) {
+                if (cfg.posMode == POS_MODE_FIXED && cfg.sensorModel != SENSOR_DISABLED) {
+                    showToast("Apaga Sensor (CONF 5/7) para usar GPS", COL_ORANGE);
+                    _needsFullRedraw = true;
+                    return;
+                }
                 cfg.posMode = (cfg.posMode == POS_MODE_FIXED) ? POS_MODE_GPS : POS_MODE_FIXED;
                 Aprs.saveConfig();
                 applyDisplayHardware();
@@ -1963,11 +1971,20 @@ void UiManager::handleConfigTouch(uint16_t tx, uint16_t ty) {
         }
 
     } else if (_cfgPage == 4) {
-        // Página 5: Configuración de Sensores Meteorológicos (BMP280 / BME280 / AHT20 / DHT22 / DHT11)
-        // Fila 2 (y=97..131): Modelo de Sensor y Pines
+        // Página 5: Configuración de Sensor Meteorológico I2C (BME280 / BMP280)
+        // Fila 2 (y=97..131): Activar/Apagar Sensor BME/BMP280 y Pines I2C
         if (ty >= 97 && ty <= 131) {
             if (tx < 156) {
-                cfg.sensorModel = (cfg.sensorModel + 1) % 6;
+                if (cfg.sensorModel == SENSOR_DISABLED) {
+                    if (cfg.posMode == POS_MODE_GPS) {
+                        showToast("Cambia Pos a FIJA (CONF 1/7) para sensor", COL_ORANGE);
+                        _needsFullRedraw = true;
+                        return;
+                    }
+                    cfg.sensorModel = SENSOR_BMP_BME280;
+                } else {
+                    cfg.sensorModel = SENSOR_DISABLED;
+                }
             } else {
                 cfg.sensorPinProfile = (cfg.sensorPinProfile + 1) % 3;
             }

@@ -152,6 +152,13 @@ void AprsEngine::loadConfig() {
     if (_cfg.tftBrightness < 15 || _cfg.tftBrightness > 100) _cfg.tftBrightness = 100;
 
     _cfg.sensorModel      = prefs.getUChar("snsMod", SENSOR_DISABLED);
+    // Normalizar modelos antiguos (AHT20/DHT/AUTO) y garantizar exclusión mutua con GPS
+    if (_cfg.sensorModel != SENSOR_BMP_BME280) {
+        _cfg.sensorModel = SENSOR_DISABLED;
+    }
+    if (_cfg.posMode == POS_MODE_GPS) {
+        _cfg.sensorModel = SENSOR_DISABLED;
+    }
     _cfg.sensorPinProfile = prefs.getUChar("snsPin", SENSOR_PINS_16_17);
     _cfg.sensorBeaconMode = prefs.getUChar("snsBcn", SENSOR_BCN_COMMENT);
     _cfg.tempOffsetC      = prefs.getFloat("snsTOff", 0.0f);
@@ -278,9 +285,11 @@ void AprsEngine::applyStationMode(StationMode mode) {
     }
     _cfg.stationMode = mode;
     if (mode == STATION_MODE_TRACKER) {
-        // Modo Tracker Móvil / Portátil
+        // Modo Tracker Móvil / Portátil (GPS externo excluye sensor I2C)
         _cfg.igateEnabled = false;
         _cfg.posMode = POS_MODE_GPS;
+        _cfg.sensorModel = SENSOR_DISABLED;
+        Sensors.forceDetectAndRead();
         _cfg.symbolTable = '/';
         if (_cfg.symbolCode == '&' || _cfg.symbolCode == '-') {
             _cfg.symbolCode = '>'; // Auto / Móvil por defecto en Tracker

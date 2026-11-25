@@ -31,26 +31,20 @@ void SensorManager::getActivePins(int8_t* outSdaOrData, int8_t* outScl) const {
 }
 
 const char* SensorManager::getPinProfileText() const {
-    const AprsConfig& cfg = Aprs.config();
-    bool isDht = (cfg.sensorModel == SENSOR_DHT22 || cfg.sensorModel == SENSOR_DHT11);
-    switch (cfg.sensorPinProfile) {
+    switch (Aprs.config().sensorPinProfile) {
         case SENSOR_PINS_21_22:
-            return isDht ? "Pin DHT: IO21" : "I2C: SDA=21 SCL=22";
+            return "I2C: SDA=21 SCL=22";
         case SENSOR_PINS_27_22:
-            return isDht ? "Pin DHT: IO27" : "I2C: SDA=27 SCL=22";
+            return "I2C: SDA=27 SCL=22";
         case SENSOR_PINS_16_17:
         default:
-            return isDht ? "Pin DHT: IO17 (P3)" : "I2C: SDA=16 SCL=17 (P3)";
+            return "I2C: SDA=16 SCL=17";
     }
 }
 
 const char* SensorManager::getModelConfigText() const {
     switch (Aprs.config().sensorModel) {
-        case SENSOR_AUTO_I2C:   return "Sensor: AUTO I2C";
-        case SENSOR_BMP_BME280: return "Sensor: BMP/BME280";
-        case SENSOR_AHT20:      return "Sensor: AHT20 I2C";
-        case SENSOR_DHT22:      return "Sensor: DHT22 1W";
-        case SENSOR_DHT11:      return "Sensor: DHT11 1W";
+        case SENSOR_BMP_BME280: return "Sensor: BME/BMP280";
         case SENSOR_DISABLED:
         default:                return "Sensor: APAGADO";
     }
@@ -86,25 +80,25 @@ bool SensorManager::forceDetectAndRead() {
     _lastPollMs = millis();
     const AprsConfig& cfg = Aprs.config();
 
-    if (cfg.sensorModel == SENSOR_DISABLED) {
+    if (cfg.sensorModel != SENSOR_BMP_BME280) {
         _reading.connected = false;
         _bmpInitialized = false;
         strlcpy(_reading.chipName, "APAGADO", sizeof(_reading.chipName));
-        strlcpy(_reading.statusText, "Sensores desactivados (No envia WX)", sizeof(_reading.statusText));
+        strlcpy(_reading.statusText, "Sensor apagado (Sin datos WX)", sizeof(_reading.statusText));
+        return false;
+    }
+
+    // Bloqueo estricto: NO se permite usar sensor meteorológico junto con GPS externo
+    if (cfg.posMode == POS_MODE_GPS) {
+        _reading.connected = false;
+        _bmpInitialized = false;
+        strlcpy(_reading.chipName, "BLOQ GPS", sizeof(_reading.chipName));
+        strlcpy(_reading.statusText, "GPS activo: pasa Pos a FIJA (CONF 1/7)", sizeof(_reading.statusText));
         return false;
     }
 
     int8_t sda = 16, scl = 17;
     getActivePins(&sda, &scl);
-
-    // Si eligió pines 16/17 pero tiene activo el GPS externo UART2 en 16/17, avisar conflicto
-    if (cfg.sensorPinProfile == SENSOR_PINS_16_17 && cfg.posMode == POS_MODE_GPS) {
-        _reading.connected = false;
-        _bmpInitialized = false;
-        strlcpy(_reading.chipName, "CONFLICTO", sizeof(_reading.chipName));
-        strlcpy(_reading.statusText, "IO16/17 ocupados por GPS! Usa Pos:FIJA", sizeof(_reading.statusText));
-        return false;
-    }
 
     // Evitar pisar el pin de Backlight activo con I2C si coincide con 27 o 21
     if (cfg.boardModel == BOARD_MODEL_ST7789 && (sda == 27 || scl == 27)) {
@@ -114,38 +108,16 @@ bool SensorManager::forceDetectAndRead() {
         return false;
     }
 
-    bool ok = false;
-
-    if (cfg.sensorModel == SENSOR_DHT22 || cfg.sensorModel == SENSOR_DHT11) {
-        int8_t dhtPin = (cfg.sensorPinProfile == SENSOR_PINS_16_17) ? 17 : sda;
-        if (dhtPin == CYD_LED_B) {
+    // Soltar PWM del LED Azul si usamos I2C en IO16/IO17
+    if (sda == CYD_LED_B || scl == CYD_LED_B) {
 #if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
-            ledcDetach(CYD_LED_B);
+        ledcDetach(CYD_LED_B);
 #else
-            ledcDetachPin(CYD_LED_B);
+        ledcDetachPin(CYD_LED_B);
 #endif
-        }
-        ok = readDhtSensor(dhtPin, cfg.sensorModel == SENSOR_DHT22);
-    } else {
-        // Sensores I2C (AUTO, BMP280/BME280, AHT20)
-        if (sda == CYD_LED_B || scl == CYD_LED_B) {
-#if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
-            ledcDetach(CYD_LED_B);
-#else
-            ledcDetachPin(CYD_LED_B);
-#endif
-        }
-        if (cfg.sensorModel == SENSOR_AUTO_I2C) {
-            ok = initAndReadBmpBme280(sda, scl);
-            if (!ok) {
-                ok = initAndReadAht20(sda, scl);
-            }
-        } else if (cfg.sensorModel == SENSOR_BMP_BME280) {
-            ok = initAndReadBmpBme280(sda, scl);
-        } else if (cfg.sensorModel == SENSOR_AHT20) {
-            ok = initAndReadAht20(sda, scl);
-        }
     }
+
+    bool ok = initAndReadBmpBme280(sda, scl);
 
     if (!ok) {
         _reading.connected = false;
@@ -326,112 +298,6 @@ bool SensorManager::initAndReadBmpBme280(int8_t sda, int8_t scl) {
         snprintf(_reading.statusText, sizeof(_reading.statusText), "BMP280 OK (0x%02X Temp+Pres)", foundAddr);
     }
 
-    return true;
-}
-
-bool SensorManager::initAndReadAht20(int8_t sda, int8_t scl) {
-    Wire.begin(sda, scl, 100000);
-    Wire.setTimeOut(50);
-
-    Wire.beginTransmission(0x38);
-    if (Wire.endTransmission() != 0) return false;
-
-    // Enviar comando de disparo de medición AHT20 (0xAC, 0x33, 0x00)
-    Wire.beginTransmission(0x38);
-    Wire.write(0xAC);
-    Wire.write(0x33);
-    Wire.write(0x00);
-    if (Wire.endTransmission() != 0) return false;
-
-    delay(80);
-    if (Wire.requestFrom(0x38, 6) != 6) return false;
-
-    uint8_t d[6];
-    for (int i = 0; i < 6; i++) d[i] = Wire.read();
-
-    uint32_t rawHum  = ((uint32_t)d[1] << 12) | ((uint32_t)d[2] << 4) | (d[3] >> 4);
-    uint32_t rawTemp = (((uint32_t)d[3] & 0x0F) << 16) | ((uint32_t)d[4] << 8) | d[5];
-
-    float hum = ((float)rawHum * 100.0f) / 1048576.0f;
-    float temp = (((float)rawTemp * 200.0f) / 1048576.0f) - 50.0f;
-
-    const AprsConfig& cfg = Aprs.config();
-    _reading.connected    = true;
-    _reading.hasHumidity  = true;
-    _reading.hasPressure  = false;
-    _reading.temperatureC = temp + cfg.tempOffsetC;
-    _reading.humidityPct  = constrain(hum + cfg.humOffsetPct, 0.0f, 100.0f);
-    _reading.pressureHpa  = 0.0f;
-    _reading.i2cAddr      = 0x38;
-    _reading.lastReadMs   = millis();
-    strlcpy(_reading.chipName, "AHT20", sizeof(_reading.chipName));
-    strlcpy(_reading.statusText, "AHT20 OK (0x38 Temp+Hum)", sizeof(_reading.statusText));
-    return true;
-}
-
-bool SensorManager::readDhtSensor(int8_t pin, bool isDht22) {
-    uint8_t data[5] = {0, 0, 0, 0, 0};
-
-    pinMode(pin, INPUT_PULLUP);
-    delay(2);
-
-    // Pulso de inicio (LOW durante 18ms)
-    pinMode(pin, OUTPUT);
-    digitalWrite(pin, LOW);
-    delay(18);
-    digitalWrite(pin, HIGH);
-    delayMicroseconds(30);
-    pinMode(pin, INPUT_PULLUP);
-
-    auto waitLevel = [&](int level, uint32_t timeoutUs) -> int32_t {
-        uint32_t t0 = micros();
-        while (digitalRead(pin) == level) {
-            if (micros() - t0 > timeoutUs) return -1;
-        }
-        return (int32_t)(micros() - t0);
-    };
-
-    if (waitLevel(HIGH, 100) < 0) return false;
-    if (waitLevel(LOW, 120) < 0)  return false;
-    if (waitLevel(HIGH, 120) < 0) return false;
-
-    for (int i = 0; i < 40; i++) {
-        if (waitLevel(LOW, 90) < 0) return false;
-        int32_t highUs = waitLevel(HIGH, 100);
-        if (highUs < 0) return false;
-        data[i / 8] <<= 1;
-        if (highUs > 40) {
-            data[i / 8] |= 1;
-        }
-    }
-
-    uint8_t sum = (uint8_t)(data[0] + data[1] + data[2] + data[3]);
-    if (sum != data[4] || (data[0] == 0 && data[2] == 0)) {
-        return false;
-    }
-
-    float hum = 0.0f, temp = 0.0f;
-    if (isDht22) {
-        hum = ((uint16_t)(data[0] << 8) | data[1]) * 0.1f;
-        uint16_t rawT = ((uint16_t)(data[2] & 0x7F) << 8) | data[3];
-        temp = rawT * 0.1f;
-        if (data[2] & 0x80) temp = -temp;
-    } else {
-        hum = (float)data[0];
-        temp = (float)data[2];
-    }
-
-    const AprsConfig& cfg = Aprs.config();
-    _reading.connected    = true;
-    _reading.hasHumidity  = true;
-    _reading.hasPressure  = false;
-    _reading.temperatureC = temp + cfg.tempOffsetC;
-    _reading.humidityPct  = constrain(hum + cfg.humOffsetPct, 0.0f, 100.0f);
-    _reading.pressureHpa  = 0.0f;
-    _reading.i2cAddr      = 0;
-    _reading.lastReadMs   = millis();
-    strlcpy(_reading.chipName, isDht22 ? "DHT22" : "DHT11", sizeof(_reading.chipName));
-    snprintf(_reading.statusText, sizeof(_reading.statusText), "%s OK en GPIO %d", _reading.chipName, pin);
     return true;
 }
 
