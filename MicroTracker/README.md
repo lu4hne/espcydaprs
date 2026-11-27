@@ -113,6 +113,45 @@ GPIO 3 o-----[R5 2.2 kΩ]----|  2N2222 / BC547
     (verificar con multímetro según cable K1).
 ```
 
+### 1B. Versión Mejorada de Filtros de Audio (Recomendada para PCB / Montaje Definitivo)
+
+Para tonos TX más puros (sin atenuar `2200 Hz` y con rechazo >55 dB de la portadora Sigma-Delta de `312.5 kHz`), ajuste fino de nivel por preset y protección/filtrado de ruido en RX (100% compatible con el firmware actual en `ADC 12 dB / 0–3.3V`):
+
+```text
+================================================================================
+RX MEJORADO (Vref Filtrada + Protección 1N4148 ---> GPIO 0)
+================================================================================
+
+  +3.3V o---[100 Ω]---+----+----+-----> Vref (~3.3V filtrado)
+                      |    |    |
+                     ===  ===  [10 kΩ]
+                  100nF  22µF   |
+                      |    |    +----|<|----+ (D1: 1N4148 cátodo a Vref)
+                     GND  GND   |           |
+  SPK Radio o---||--------------+-----------+---> GPIO 0 (ADC1_CH0, ~1.65V DC)
+               4.7 µF           |           |
+                             [10 kΩ]       =|= (D2: 1N4148 ánodo a GND)
+                                |           |
+                               GND         GND (Común)
+
+* 100 Ω + 100 nF + 22 µF eliminan ruido de la fuente 3.3V/USB en el ADC.
+* D1 y D2 (1N4148) protegen GPIO 0 contra picos altos del parlante.
+
+================================================================================
+TX MEJORADO (Filtro 2 Polos + Preset VR1K ---> Entrada MIC del Handy)
+================================================================================
+
+  GPIO 1 o---[1.5 kΩ]---+---[1.5 kΩ]---+---[R1 22–68 kΩ*]---+
+                        |              |                    |
+                       === 10 nF      === 10 nF           [VR1K] (Preset 1 kΩ)
+                        |              |                   /  |---> [1 µF] ---> MIC
+                       GND            GND                  |
+                                                          GND (Común)
+
+* *R1: 47–68 kΩ para Baofeng (micrófono muy sensible) o 15–22 kΩ para Yaesu.
+* Mantener siempre el transistor NPN (2N2222/BC547) en PTT (GPIO 3).
+```
+
 ### 2. Conexión del Módulo GPS NMEA y Botón SOS
 
 ```text

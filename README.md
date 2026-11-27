@@ -239,6 +239,52 @@ IO22 o-------[R5 2.2 kΩ]----|  2N2222 / BC548
                                  GND (Común)
 ```
 
+### Versión Mejorada de Filtros de Audio (Recomendada para PCB / Montaje Definitivo)
+
+Para obtener tonos TX aún más limpios (sin atenuar `2200 Hz` y con rechazo >55 dB de la portadora Sigma-Delta de `312.5 kHz`), ajuste fino de desviación FM y máxima protección/rechazo de ruido en la entrada RX (compatible 100% con el firmware actual en `ADC 12 dB / 0–3.3V`):
+
+```text
+================================================================================
+1B. ENTRADA DE AUDIO RX MEJORADA (Filtrado de Vref + Protección Diodos)
+================================================================================
+
+  +3.3V o---[R5 100 Ω]---+----+----+-----> Vref (~3.3V filtrado)
+                         |    |    |
+                        ===  ===  [R6 10 kΩ]
+                    C4 100nF C5 22µF |
+                         |    |      |
+                        GND  GND     +----|<|----+ (D1: 1N4148 ánodo al ADC, cátodo a Vref)
+                                     |           |
+  SPK Radio o---||-------------------+-----------+---> IO35 (ADC1_CH7, ~1.65V DC)
+               C6 4.7 µF             |           |
+                                 [R9 10 kΩ]     =|= (D2: 1N4148 cátodo al ADC, ánodo a GND)
+                                     |           |
+                                    GND         GND (Común)
+
+* R5 (100 Ω) + C4 (100 nF) + C5 (22 µF) filtran el ruido de la fuente 3.3V
+  (USB, WiFi y TFT) antes de polarizar el ADC en 1.65V.
+* D1 y D2 (1N4148) protegen IO35 contra picos de volumen altos del parlante.
+* Opcional: si el volumen de tu handy resulta demasiado sensible, agrega un
+  divisor resistivo (3 kΩ en serie + 1 kΩ a GND) antes de C6.
+
+================================================================================
+2B. SALIDA DE AUDIO TX MEJORADA (Filtro Pasabajos 2 Polos + Preset VR1K)
+================================================================================
+
+  Pin TX o---[1.5 kΩ]---+---[1.5 kΩ]---+---[R1 22 kΩ*]---+
+                        |              |                 |
+                       === C3         === C2           [VR1K] (Preset 1 kΩ)
+                      10 nF          10 nF              /  |---> [C1 1 µF] ---> MIC Radio
+                        |              |                |
+                       GND            GND              GND (Común)
+
+* Doble etapa RC (1.5 kΩ + 10 nF x2): respuesta plana en 1200/2200 Hz y
+  atenuación >55 dB sobre la portadora Sigma-Delta de 312.5 kHz.
+* *R1: usar 47–68 kΩ para handies de micrófono muy sensible (Baofeng) o
+  15–22 kΩ para equipos Yaesu / base; calibrar desviación fina con VR1K.
+* Mantener siempre el transistor NPN (2N2222/BC547) en la línea PTT (IO22).
+```
+
 ---
 
 ## Guía de Uso en la Pantalla Táctil (`5 Pestañas Inferiores + 6 Páginas de Configuración`)
