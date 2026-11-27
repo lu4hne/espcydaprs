@@ -1,0 +1,165 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE eagle SYSTEM "eagle.dtd">
+<eagle version="7.6.0">
+<drawing>
+<settings>
+<setting alwaysvectorfont="no"/>
+<setting verticaltext="up"/>
+</settings>
+<grid distance="0.1" unitdist="inch" unit="mil" style="lines" multiple="1" display="yes" altdistance="25" altunitdist="mil" altunit="mil"/>
+<layers>
+<layer number="1" name="Top" color="4" fill="1" visible="yes" active="yes"/>
+<layer number="16" name="Bottom" color="1" fill="1" visible="yes" active="yes"/>
+<layer number="17" name="Pads" color="2" fill="1" visible="yes" active="yes"/>
+<layer number="18" name="Vias" color="2" fill="1" visible="yes" active="yes"/>
+<layer number="19" name="Unrouted" color="6" fill="1" visible="yes" active="yes"/>
+<layer number="20" name="Dimension" color="15" fill="1" visible="yes" active="yes"/>
+<layer number="21" name="tPlace" color="7" fill="1" visible="yes" active="yes"/>
+<layer number="22" name="bPlace" color="7" fill="1" visible="yes" active="yes"/>
+<layer number="23" name="tOrigins" color="15" fill="1" visible="yes" active="yes"/>
+<layer number="24" name="bOrigins" color="15" fill="1" visible="yes" active="yes"/>
+<layer number="25" name="tNames" color="7" fill="1" visible="yes" active="yes"/>
+<layer number="26" name="bNames" color="7" fill="1" visible="yes" active="yes"/>
+<layer number="27" name="tValues" color="7" fill="1" visible="yes" active="yes"/>
+<layer number="28" name="bValues" color="7" fill="1" visible="yes" active="yes"/>
+<layer number="29" name="tStop" color="7" fill="3" visible="no" active="yes"/>
+<layer number="30" name="bStop" color="7" fill="6" visible="no" active="yes"/>
+<layer number="31" name="tCream" color="7" fill="4" visible="no" active="yes"/>
+<layer number="32" name="bCream" color="7" fill="5" visible="no" active="yes"/>
+<layer number="39" name="tKeepout" color="4" fill="11" visible="yes" active="yes"/>
+<layer number="40" name="bKeepout" color="1" fill="11" visible="yes" active="yes"/>
+<layer number="41" name="tRestrict" color="4" fill="10" visible="yes" active="yes"/>
+<layer number="42" name="bRestrict" color="1" fill="10" visible="yes" active="yes"/>
+<layer number="43" name="vRestrict" color="2" fill="10" visible="yes" active="yes"/>
+<layer number="44" name="Drills" color="7" fill="1" visible="no" active="yes"/>
+<layer number="45" name="Holes" color="7" fill="1" visible="yes" active="yes"/>
+<layer number="51" name="tDocu" color="7" fill="1" visible="yes" active="yes"/>
+<layer number="52" name="bDocu" color="7" fill="1" visible="yes" active="yes"/>
+<layer number="90" name="Modules" color="5" fill="1" visible="yes" active="yes"/>
+<layer number="91" name="Nets" color="2" fill="1" visible="yes" active="yes"/>
+<layer number="92" name="Busses" color="1" fill="1" visible="yes" active="yes"/>
+<layer number="93" name="Pins" color="2" fill="1" visible="yes" active="yes"/>
+<layer number="94" name="Symbols" color="4" fill="1" visible="yes" active="yes"/>
+<layer number="95" name="Names" color="7" fill="1" visible="yes" active="yes"/>
+<layer number="96" name="Values" color="7" fill="1" visible="yes" active="yes"/>
+<layer number="97" name="Info" color="7" fill="1" visible="yes" active="yes"/>
+<layer number="98" name="Guide" color="6" fill="1" visible="yes" active="yes"/>
+</layers>
+<library>
+<description>&lt;b&gt;PJ-327A 3.5mm Stereo Audio Jack SMD&lt;/b&gt;&lt;p&gt;
+Libreria para conector Jack de audio 3.5mm SMD hembra de 4 contactos.&lt;br&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;b&gt;Contactos:&lt;/b&gt; Pines SMD 2, 3, 4, 5&lt;/li&gt;
+&lt;li&gt;&lt;b&gt;Dimensiones del cuerpo:&lt;/b&gt; 12.1 mm x 6.1 mm x 5.0 mm&lt;/li&gt;
+&lt;li&gt;&lt;b&gt;Cuello frontal:&lt;/b&gt; Diametro 5.6 mm, sobresale 2.0 mm&lt;/li&gt;
+&lt;li&gt;&lt;b&gt;Orificio de insercion:&lt;/b&gt; Diametro 3.6 mm (Plug estandard 3.5mm)&lt;/li&gt;
+&lt;li&gt;&lt;b&gt;Postes de centrado:&lt;/b&gt; 2 agujeros guia Diametro 1.5 mm (separacion 7.0 mm)&lt;/li&gt;
+&lt;li&gt;&lt;b&gt;Rating:&lt;/b&gt; 0.3A 30V DC&lt;/li&gt;
+&lt;/ul&gt;</description>
+<packages>
+<package name="PJ-327A_SMD">
+<description>&lt;b&gt;PJ-327A SMD (Conector Jack 3.5mm)&lt;/b&gt;&lt;p&gt;
+Cuerpo: 12.1 x 6.1 mm (alto 5.0 mm).&lt;br&gt;
+Postes guía: 2 x Diametro 1.5 mm a X=1.6 mm y X=8.6 mm en Y=0.&lt;br&gt;
+Pads SMD: 1.4 mm x 2.5 mm.&lt;br&gt;
+Pad 2: X=3.2 mm, Y=+3.25 mm&lt;br&gt;
+Pad 3: X=6.2 mm, Y=+3.25 mm&lt;br&gt;
+Pad 4: X=10.2 mm, Y=+3.25 mm&lt;br&gt;
+Pad 5: X=11.3 mm, Y=-3.25 mm&lt;br&gt;
+Origen (0,0) en la cara frontal del cuerpo plástico sobre el eje central.</description>
+<smd name="2" x="3.2" y="3.25" dx="1.4" dy="2.5" layer="1" roundness="15"/>
+<smd name="3" x="6.2" y="3.25" dx="1.4" dy="2.5" layer="1" roundness="15"/>
+<smd name="4" x="10.2" y="3.25" dx="1.4" dy="2.5" layer="1" roundness="15"/>
+<smd name="5" x="11.3" y="-3.25" dx="1.4" dy="2.5" layer="1" roundness="15"/>
+<hole x="1.6" y="0" drill="1.5"/>
+<hole x="8.6" y="0" drill="1.5"/>
+<circle x="1.6" y="0" radius="1.1" width="0" layer="41"/>
+<circle x="1.6" y="0" radius="1.1" width="0" layer="42"/>
+<circle x="1.6" y="0" radius="1.1" width="0" layer="39"/>
+<circle x="8.6" y="0" radius="1.1" width="0" layer="41"/>
+<circle x="8.6" y="0" radius="1.1" width="0" layer="42"/>
+<circle x="8.6" y="0" radius="1.1" width="0" layer="39"/>
+<wire x1="0" y1="-3.05" x2="12.1" y2="-3.05" width="0.127" layer="51"/>
+<wire x1="12.1" y1="-3.05" x2="12.1" y2="3.05" width="0.127" layer="51"/>
+<wire x1="12.1" y1="3.05" x2="0" y2="3.05" width="0.127" layer="51"/>
+<wire x1="0" y1="3.05" x2="0" y2="-3.05" width="0.127" layer="51"/>
+<wire x1="-2" y1="-2.8" x2="0" y2="-2.8" width="0.127" layer="51"/>
+<wire x1="-2" y1="2.8" x2="0" y2="2.8" width="0.127" layer="51"/>
+<wire x1="-2" y1="-2.8" x2="-2" y2="2.8" width="0.127" layer="51"/>
+<circle x="-2" y="0" radius="1.8" width="0.127" layer="51"/>
+<circle x="1.6" y="0" radius="0.75" width="0.127" layer="51"/>
+<circle x="8.6" y="0" radius="0.75" width="0.127" layer="51"/>
+<wire x1="0" y1="1.5" x2="0" y2="3.05" width="0.2032" layer="21"/>
+<wire x1="0" y1="3.05" x2="2.2" y2="3.05" width="0.2032" layer="21"/>
+<wire x1="4.2" y1="3.05" x2="5.2" y2="3.05" width="0.2032" layer="21"/>
+<wire x1="7.2" y1="3.05" x2="9.2" y2="3.05" width="0.2032" layer="21"/>
+<wire x1="11.2" y1="3.05" x2="12.1" y2="3.05" width="0.2032" layer="21"/>
+<wire x1="12.1" y1="3.05" x2="12.1" y2="-3.05" width="0.2032" layer="21"/>
+<wire x1="12.1" y1="-3.05" x2="12.3" y2="-3.05" width="0.2032" layer="21"/>
+<wire x1="10.3" y1="-3.05" x2="0" y2="-3.05" width="0.2032" layer="21"/>
+<wire x1="0" y1="-3.05" x2="0" y2="-1.5" width="0.2032" layer="21"/>
+<wire x1="-2" y1="-2.8" x2="0" y2="-2.8" width="0.15" layer="21"/>
+<wire x1="-2" y1="2.8" x2="0" y2="2.8" width="0.15" layer="21"/>
+<wire x1="-2" y1="-2.8" x2="-2" y2="2.8" width="0.15" layer="21"/>
+<circle x="1.6" y="3.8" radius="0.3" width="0.6" layer="21"/>
+<text x="0" y="5" size="1.27" layer="25" font="vector">&gt;NAME</text>
+<text x="0" y="-6.5" size="1.27" layer="27" font="vector">&gt;VALUE</text>
+</package>
+</packages>
+<symbols>
+<symbol name="PJ-327A">
+<wire x1="-12.7" y1="5.08" x2="-10.16" y2="5.08" width="0.4064" layer="94"/>
+<wire x1="-10.16" y1="5.08" x2="-10.16" y2="-5.08" width="0.4064" layer="94"/>
+<wire x1="-10.16" y1="-5.08" x2="-12.7" y2="-5.08" width="0.4064" layer="94"/>
+<wire x1="-12.7" y1="-5.08" x2="-12.7" y2="5.08" width="0.4064" layer="94"/>
+<wire x1="-10.16" y1="5.08" x2="2.54" y2="5.08" width="0.254" layer="94"/>
+<wire x1="2.54" y1="0" x2="-4.445" y2="0" width="0.254" layer="94"/>
+<wire x1="-4.445" y1="0" x2="-5.08" y2="-1.27" width="0.254" layer="94"/>
+<wire x1="-5.08" y1="-1.27" x2="-5.715" y2="0" width="0.254" layer="94"/>
+<wire x1="2.54" y1="-2.54" x2="-1.905" y2="-2.54" width="0.254" layer="94"/>
+<wire x1="-1.905" y1="-2.54" x2="-2.54" y2="-3.81" width="0.254" layer="94"/>
+<wire x1="-2.54" y1="-3.81" x2="-3.175" y2="-2.54" width="0.254" layer="94"/>
+<wire x1="2.54" y1="2.54" x2="-6.985" y2="2.54" width="0.254" layer="94"/>
+<wire x1="-6.985" y1="2.54" x2="-7.62" y2="1.27" width="0.254" layer="94"/>
+<wire x1="-7.62" y1="1.27" x2="-8.255" y2="2.54" width="0.254" layer="94"/>
+<pin name="2" x="5.08" y="5.08" visible="pin" length="short" direction="pas" rot="R180"/>
+<pin name="3" x="5.08" y="0" visible="pin" length="short" direction="pas" rot="R180"/>
+<pin name="4" x="5.08" y="-2.54" visible="pin" length="short" direction="pas" rot="R180"/>
+<pin name="5" x="5.08" y="2.54" visible="pin" length="short" direction="pas" rot="R180"/>
+<text x="-5.08" y="6.985" size="1.778" layer="95">&gt;NAME</text>
+<text x="-5.08" y="-10.16" size="1.778" layer="96">&gt;VALUE</text>
+</symbol>
+</symbols>
+<devicesets>
+<deviceset name="PJ-327A" prefix="J">
+<description>&lt;b&gt;PJ-327A 3.5mm Stereo Audio Jack SMD&lt;/b&gt;&lt;p&gt;
+Conector Jack 3.5mm hembra estereo SMD de 4 contactos (pines 2, 3, 4, 5).&lt;br&gt;
+Diseñado segun especificaciones del plano mecanico:&lt;br&gt;
+&lt;ul&gt;
+&lt;li&gt;Cuerpo: 12.1 mm x 6.1 mm x 5.0 mm&lt;/li&gt;
+&lt;li&gt;Pads SMD: 1.4 mm x 2.5 mm en Y=+3.25 (Pines 2, 3, 4) y Y=-3.25 (Pin 5)&lt;/li&gt;
+&lt;li&gt;Pines en X: Pin 2 (3.2 mm), Pin 3 (6.2 mm), Pin 4 (10.2 mm), Pin 5 (11.3 mm)&lt;/li&gt;
+&lt;li&gt;2 Agujeros guia: Diametro 1.5 mm en X=1.6 mm y X=8.6 mm (distancia 7.0 mm)&lt;/li&gt;
+&lt;li&gt;Rating: 0.3A 30V DC&lt;/li&gt;
+&lt;/ul&gt;</description>
+<gates>
+<gate name="G$1" symbol="PJ-327A" x="0" y="0"/>
+</gates>
+<devices>
+<device name="" package="PJ-327A_SMD">
+<connects>
+<connect gate="G$1" pin="2" pad="2"/>
+<connect gate="G$1" pin="3" pad="3"/>
+<connect gate="G$1" pin="4" pad="4"/>
+<connect gate="G$1" pin="5" pad="5"/>
+</connects>
+<technologies>
+<technology name=""/>
+</technologies>
+</device>
+</devices>
+</deviceset>
+</devicesets>
+</library>
+</drawing>
+</eagle>
